@@ -140,6 +140,7 @@ class DemoShippingAdapter(CourierProvider):
 
     def __init__(self, couriers: Optional[list[DemoCourierConfig]] = None):
         self._couriers = couriers or DEMO_COURIERS
+        self._created_shipments: dict[str, ShipmentResult] = {}
 
     @property
     def provider_code(self) -> str:
@@ -303,7 +304,7 @@ class DemoShippingAdapter(CourierProvider):
         tracking_num = f"DEMO-TRK-{hashlib.sha256(hash_seed.encode()).hexdigest()[:10].upper()}"
         shipment_id = f"DEMO-SHP-{order.order_reference}-{quote.courier_code}"
 
-        return ShipmentResult(
+        res = ShipmentResult(
             shipment_id=shipment_id,
             order_reference=order.order_reference,
             courier_code=quote.courier_code,
@@ -321,6 +322,12 @@ class DemoShippingAdapter(CourierProvider):
                 "note": "Label generation unsupported in demo mode",
             },
         )
+        self._created_shipments[order.order_reference] = res
+        return res
+
+    def lookup_shipment_by_reference(self, order_reference: str) -> Optional[ShipmentResult]:
+        """Lookup previously created shipment by order reference for safe reconciliation."""
+        return self._created_shipments.get(order_reference)
 
     def get_tracking(self, tracking_number: str) -> TrackingResult:
         """

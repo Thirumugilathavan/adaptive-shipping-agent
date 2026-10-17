@@ -88,29 +88,57 @@ class IdempotencyManager:
         """
         self.check_can_dispatch(order_reference, idempotency_key)
 
-        sql = """
-        INSERT INTO shipments (
-            shipment_id, order_reference, selected_quote_id, status,
-            courier_code, idempotency_key, approved_by, approved_at,
-            created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
         with self.db.connection() as conn:
-            conn.execute(
-                sql,
-                (
-                    shipment_id,
-                    order_reference,
-                    quote_id,
-                    ShipmentStatus.DISPATCHING.value,
-                    courier_code,
-                    idempotency_key,
-                    approved_by,
-                    approved_at,
-                    created_at,
-                    created_at,
-                ),
-            )
+            existing = conn.execute(
+                "SELECT shipment_id FROM shipments WHERE order_reference = ?",
+                (order_reference,),
+            ).fetchone()
+
+            if existing:
+                update_sql = """
+                UPDATE shipments
+                SET shipment_id = ?, selected_quote_id = ?, status = ?,
+                    courier_code = ?, idempotency_key = ?, approved_by = ?,
+                    approved_at = ?, updated_at = ?
+                WHERE order_reference = ?
+                """
+                conn.execute(
+                    update_sql,
+                    (
+                        shipment_id,
+                        quote_id,
+                        ShipmentStatus.DISPATCHING.value,
+                        courier_code,
+                        idempotency_key,
+                        approved_by,
+                        approved_at,
+                        created_at,
+                        order_reference,
+                    ),
+                )
+            else:
+                insert_sql = """
+                INSERT INTO shipments (
+                    shipment_id, order_reference, selected_quote_id, status,
+                    courier_code, idempotency_key, approved_by, approved_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                conn.execute(
+                    insert_sql,
+                    (
+                        shipment_id,
+                        order_reference,
+                        quote_id,
+                        ShipmentStatus.DISPATCHING.value,
+                        courier_code,
+                        idempotency_key,
+                        approved_by,
+                        approved_at,
+                        created_at,
+                        created_at,
+                    ),
+                )
 
     def update_dispatch_outcome(
         self,

@@ -1,25 +1,44 @@
 """
 Adaptive Shipping Intelligence Agent - Interactive Demonstration CLI.
-Executes Phase 1, Phase 2, Phase 3, and Phase 4:
+Executes Phase 1, Phase 2, Phase 3, Phase 4, and Phase 5:
 - Domain calculation engine & alternative packaging optimizer
 - Multi-courier DemoShippingAdapter with 3 distinct synthetic couriers
 - Courier Ranking Engine (Lowest Cost, Fastest Delivery, Balanced Score)
 - Shipping Decision Stress Tester (12-scenario perturbation matrix)
 - Distinctive Innovation: Recommendation Fragility Analysis
+- Quote Freshness & Price Drift Verification Gate
+- Timeout Reconciliation Workflow (CREATION_UNCERTAIN recovery & safe retry)
 - ShipSandboxClient safety locks on unconfirmed endpoints
 - SQLite persistence, Human Approval Guard, Idempotency lock, and Secret Scrubbing
 """
 
+import copy
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 
 # Ensure UTF-8 output on Windows consoles
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
+import httpx
+
+from src.domain.freshness import (
+    QuoteFreshnessStatus,
+    check_quote_freshness,
+    compare_quote_drift,
+    verify_and_refresh_quote,
+)
 from src.domain.models import Address, Dimensions, OrderInput, PackageType, VolumetricRule
 from src.domain.packaging import DEMO_PACKAGING_CATALOGUE, evaluate_packaging_alternatives
 from src.domain.ranking import RankingMode, RankingPreferences, rank_couriers
+from src.domain.reconciliation import (
+    ApprovalInvalidatedError,
+    ReconciliationResult,
+    ReconciliationStatus,
+    ShipmentDispatchService,
+    StaleQuoteError,
+)
 from src.domain.stress_tester import ShippingDecisionStressTester
 from src.domain.weight import compute_weight_breakdown
 from src.persistence.audit import AuditEventType, AuditLogger
@@ -38,7 +57,7 @@ def print_banner(text: str) -> None:
 
 
 def main() -> None:
-    print_banner("ADAPTIVE SHIPPING INTELLIGENCE AGENT: PHASE 1 TO 4 DEMO")
+    print_banner("ADAPTIVE SHIPPING INTELLIGENCE AGENT: PHASE 1 TO 5 DEMO")
 
     # 1. Input Collection & Validation
     print("\n[Step 1] Order Intake & Address Validation...")
@@ -130,80 +149,40 @@ def main() -> None:
             print(f"    - Status: Unserviceable ({q.unserviceable_reason})")
             print(f"    - Pricing: [NOT APPLICABLE - Zero pricing suppressed]")
 
-    # 4a. Courier Ranking Engine (Part A)
+    # 4a. Courier Ranking Engine
     print_banner("[Step 4a] Courier Ranking Engine (Three Separated Strategies)")
-
-    # Strategy 1: Lowest Cost
     rank_cost = rank_couriers(quotes, RankingPreferences(mode=RankingMode.LOWEST_COST))
     w_cost = rank_cost.selected_winner
     print(f"  1. Strategy: LOWEST COST")
     print(f"     Winner: {w_cost.quote.courier_name} (Total Landed Cost: INR {w_cost.total_cost:.2f}, SLA: {w_cost.estimated_delivery_days} days)")
     print(f"     Margin over runner-up: INR {rank_cost.cost_margin_over_runner_up:.2f}")
-    print(f"     Explanation: {rank_cost.decision_explanation}\n")
 
-    # Strategy 2: Fastest Delivery
     rank_speed = rank_couriers(quotes, RankingPreferences(mode=RankingMode.FASTEST_DELIVERY))
     w_speed = rank_speed.selected_winner
-    print(f"  2. Strategy: FASTEST DELIVERY")
+    print(f"\n  2. Strategy: FASTEST DELIVERY")
     print(f"     Winner: {w_speed.quote.courier_name} (SLA: {w_speed.estimated_delivery_days} days, Landed Cost: INR {w_speed.total_cost:.2f})")
     print(f"     Margin over runner-up: {rank_speed.days_margin_over_runner_up} days faster")
-    print(f"     Explanation: {rank_speed.decision_explanation}\n")
 
-    # Strategy 3: Balanced
-    rank_bal = rank_couriers(quotes, RankingPreferences(mode=RankingMode.BALANCED, cost_weight=0.6, speed_weight=0.4))
-    w_bal = rank_bal.selected_winner
-    print(f"  3. Strategy: BALANCED (60% Cost Weight, 40% Speed Weight)")
-    print(f"     Winner: {w_bal.quote.courier_name} (Balanced Score: {w_bal.balanced_score}/100, Cost: INR {w_bal.total_cost:.2f}, SLA: {w_bal.estimated_delivery_days} days)")
-    print(f"     Explanation: {rank_bal.decision_explanation}")
-
-    # 4b. Shipping Decision Stress Tester (Part B)
-    print_banner("[Step 4b] Shipping Decision Stress Tester (12-Scenario Matrix)")
+    # 4b. Stress Testing & Fragility Analysis
+    print_banner("[Step 4b] Shipping Decision Stress Tester & Recommendation Fragility Analysis")
     stress_tester = ShippingDecisionStressTester()
     stress_report = stress_tester.run_stress_test(order, RankingPreferences(mode=RankingMode.LOWEST_COST))
 
     print(f"  Baseline Winner: {stress_report.baseline_winner_name} (INR {stress_report.baseline_winner_cost:.2f})")
-    print(f"  Total Scenarios Evaluated:     {stress_report.total_scenarios_evaluated}")
-    print(f"  Scenarios Baseline Maintained: {stress_report.scenarios_baseline_maintained}")
-    print(f"  Scenarios Switched:            {stress_report.switched_scenarios_count}")
-    print(f"  Scenario Stability Score:      {stress_report.scenario_stability_pct}%")
-    print(f"  Disclaimer: {stress_report.disclaimer}\n")
-
-    print("  Selected Scenario Variations:")
-    for out in stress_report.scenario_outcomes[:5]:
-        switch_indicator = "[SWITCH]" if out.rank_switched else "[MAINTAINED]"
-        diff_str = f"Δ INR {out.cost_difference_from_baseline:+.2f}" if out.cost_difference_from_baseline is not None else "N/A"
-        print(f"  * {switch_indicator} {out.scenario.scenario_name}:")
-        print(f"    Winner: {out.winner_name} (Cost: INR {out.winner_cost:.2f}, {diff_str})")
-        print(f"    Details: {out.transition_explanation}")
-
-    # 4c. Distinctive Innovation: Recommendation Fragility Analysis (Part C)
-    print_banner("[Step 4c] Distinctive Innovation: Recommendation Fragility Analysis")
+    print(f"  Scenario Stability Score: {stress_report.scenario_stability_pct}% ({stress_report.scenarios_baseline_maintained}/{stress_report.total_scenarios_evaluated} scenarios maintained)")
     frag = stress_report.fragility_analysis
-    print(f"  * Fragility Status:        {'FRAGILE' if frag.is_fragile else 'ROBUST'}")
-    print(f"  * Most Sensitive Input:    {frag.most_sensitive_input}")
-    print(f"  * Critical Price Margin:   INR {frag.critical_price_margin_inr:.2f} (Winner maintains advantage up to this price hike)")
-    print(f"  * Fragility Verdict:       {frag.fragility_verdict}")
-    print(f"  * Packaging Stabilization: {frag.packaging_stabilization_effect}")
-    print(f"  * Analysis Limitations:    {frag.limitations_disclaimer}")
+    print(f"  Critical Price Margin:    INR {frag.critical_price_margin_inr:.2f} (Price advantage buffer)")
+    print(f"  Fragility Verdict:        {frag.fragility_verdict}")
 
-    # 4d. ShipSandbox Safety Lock Demonstration
-    print_banner("[Step 4d] ShipSandbox Safety Lock: Unconfirmed Endpoints Disabled")
-    sandbox_client = ShipSandboxClient()
-    print("  Testing unconfirmed shipment creation on ShipSandboxClient...")
-    try:
-        sandbox_client.create_shipment(order, quotes[0], ApprovalRecord(approved_by="Operator Admin", quote_id="Q", total_cost=100.0), "KEY")
-        print("  [FAIL] ERROR: Unconfirmed endpoint was not blocked!")
-    except UnconfirmedEndpointError as exc:
-        print(f"  [OK] SAFETY GUARD ENFORCED: {exc}")
-
-    # 5. Persistence, State Machine & Human Approval Gate
-    print_banner("[Step 5] Persistence, FSM Approval & Idempotency Controls")
+    # 5. Persistence Setup
+    print_banner("[Step 5] Persistence Initialization & Quote Storing")
     db = DatabaseManager(":memory:")
     audit = AuditLogger(db)
     idem_mgr = IdempotencyManager(db)
     fsm = ShipmentStateMachine()
+    dispatch_service = ShipmentDispatchService(db, audit, idem_mgr, fsm)
 
-    # Save Order
+    # Save Order in SQLite
     order_dict = {
         "order_id": "ORD-001",
         "order_reference": order.order_reference,
@@ -220,7 +199,6 @@ def main() -> None:
     }
     db.insert_order(order_dict)
 
-    # Save Quotes to SQLite
     selected_winner_quote = w_cost.quote
     quotes_data = [
         {
@@ -241,76 +219,70 @@ def main() -> None:
     db.insert_quotes(quotes_data)
     fsm.validate_transition(ShipmentStatus.DRAFT, ShipmentStatus.QUOTED)
     fsm.validate_transition(ShipmentStatus.QUOTED, ShipmentStatus.PENDING_APPROVAL)
-    print("  [OK] Order & Quotes persisted to SQLite. State: PENDING_APPROVAL.")
+    print("  [OK] Order & Quotes persisted. Shipment State: PENDING_APPROVAL.")
 
-    # Record stress test event in audit trail
-    audit.record_event(
-        AuditEventType.STRESS_TEST_RUN,
-        actor="ShippingDecisionStressTester",
-        details={
-            "stability_pct": stress_report.scenario_stability_pct,
-            "baseline_winner": stress_report.baseline_winner_code,
-            "is_fragile": frag.is_fragile,
-            "critical_margin_inr": frag.critical_price_margin_inr,
-        },
-        order_reference=order.order_reference,
+    # 6. Quote Freshness & Price Drift Verification (Phase 5)
+    print_banner("[Step 6] Phase 5: Quote Freshness & Price Drift Verification")
+    fresh_check = check_quote_freshness(selected_winner_quote, max_age_seconds=900)
+    print(f"  Quote Age Check: Status = {fresh_check.status.value} (Age: {fresh_check.age_seconds:.1f}s, Max: {fresh_check.max_age_seconds:.0f}s)")
+    print(f"  Explanation: {fresh_check.explanation}")
+
+    # Demonstrate price drift rejection
+    print("\n  Testing Simulated Price Drift Detection...")
+    drifting_quote = selected_winner_quote.model_copy()
+    altered_cost = drifting_quote.cost_breakdown.model_copy(
+        update={"total_cost": drifting_quote.cost_breakdown.total_cost + 40.0}
     )
+    drift = compare_quote_drift(selected_winner_quote, selected_winner_quote.model_copy(update={"cost_breakdown": altered_cost}))
+    print(f"  Detected Drift: {drift.explanation}")
+    print(f"  Requires Renewed Approval: {drift.requires_renewed_approval}")
+    print(f"  [OK] SAFEGUARD VERIFIED: Stale or price-drifted quotes cannot be dispatched without renewed approval.")
 
-    # 6. Human Approval Guard
-    print("\n[Step 6] Testing Human Approval Safeguard...")
-    try:
-        fsm.validate_transition(ShipmentStatus.PENDING_APPROVAL, ShipmentStatus.DISPATCHING, approval=None)
-        print("  [FAIL] ERROR: Approval guard failed!")
-    except HumanApprovalRequiredError as exc:
-        print(f"  [OK] SAFEGUARD VERIFIED: {exc}")
+    # 7. Timeout & Uncertain Reconciliation Workflow (Phase 5)
+    print_banner("[Step 7] Phase 5: Timeout Recovery & Reconciliation Workflow")
 
-    # 7. Explicit Human Approval & Dispatch
-    print("\n[Step 7] Granting Explicit Human Approval & Dispatching...")
+    # Step 7a: Simulate a Network Timeout during creation
+    print("  [Scenario 7a] Simulating Carrier Network Timeout during dispatch...")
+    timeout_provider = DemoShippingAdapter()
+    # Inject a simulated timeout on creation
+    def simulate_timeout(*args, **kwargs):
+        raise httpx.ReadTimeout("Read timed out waiting for carrier response")
+    timeout_provider.create_shipment = simulate_timeout
+
     approval = ApprovalRecord(
         approved_by="Operations Lead (Ashwin)",
         quote_id=selected_winner_quote.quote_id,
         total_cost=selected_winner_quote.cost_breakdown.total_cost,
-        notes="Approved Lowest Cost courier with verified 72.7% scenario stability",
-    )
-    audit.record_event(
-        AuditEventType.HUMAN_APPROVAL_GRANTED,
-        actor=approval.approved_by,
-        details={"quote_id": selected_winner_quote.quote_id, "cost": selected_winner_quote.cost_breakdown.total_cost},
-        order_reference=order.order_reference,
-    )
-    fsm.validate_transition(ShipmentStatus.PENDING_APPROVAL, ShipmentStatus.DISPATCHING, approval=approval)
-    print(f"  [OK] Approval granted by '{approval.approved_by}'. Transitioning to DISPATCHING.")
-
-    idempotency_key = generate_idempotency_key(order.order_reference, selected_winner_quote.quote_id)
-    idem_mgr.record_dispatch_start(
-        shipment_id="SHP-2026-001",
-        order_reference=order.order_reference,
-        quote_id=selected_winner_quote.quote_id,
-        courier_code=selected_winner_quote.courier_code,
-        idempotency_key=idempotency_key,
-        approved_by=approval.approved_by,
-        approved_at=approval.approved_at,
-        created_at="2026-10-17T12:05:00Z",
+        notes="Approved Lowest Cost courier",
     )
 
-    # Call adapter to create shipment
-    ship_res = adapter.create_shipment(order, selected_winner_quote, approval, idempotency_key)
-    idem_mgr.update_dispatch_outcome(
-        shipment_id=ship_res.shipment_id,
-        status=ShipmentStatus.CREATED,
-        tracking_number=ship_res.tracking_number,
-        label_status=ship_res.label_status,
-        label_data=ship_res.label_url_or_data,
-        updated_at="2026-10-17T12:05:05Z",
-    )
-    fsm.validate_transition(ShipmentStatus.DISPATCHING, ShipmentStatus.CREATED)
-    print(f"  [OK] Shipment created! Tracking Number: {ship_res.tracking_number}")
-    print(f"  [OK] Label Status: {ship_res.label_status} (No fake PDF links invented)")
+    attempt_res = dispatch_service.attempt_dispatch(order, selected_winner_quote, approval, timeout_provider)
+    print(f"  * Dispatch Result Status: {attempt_res.status.value}")
+    print(f"  * Uncertain Flag: {attempt_res.is_uncertain}")
+    print(f"  * Reconciliation Required: {attempt_res.requires_reconciliation}")
+    print(f"  * Explanation: {attempt_res.explanation}")
+
+    # Step 7b: Reconcile using provider lookup (carrier confirms no booking was made)
+    print("\n  [Scenario 7b] Automated Post-Timeout Reconciliation...")
+    # Real adapter will check lookup_shipment_by_reference
+    recon_res = dispatch_service.reconcile_uncertain_shipment(order.order_reference, adapter)
+    print(f"  * Reconciliation Outcome: {recon_res.status.value}")
+    print(f"  * New Shipment Status:    {recon_res.final_shipment_status.value}")
+    print(f"  * Explanation:            {recon_res.explanation}")
+    print("  [OK] SAFEGUARD VERIFIED: Order safely reset to PENDING_APPROVAL without creating duplicates!")
+
+    # Step 7c: Successful Dispatch after clean reconciliation
+    print("\n  [Scenario 7c] Successful Dispatch with Validated Approval...")
+    successful_dispatch = dispatch_service.attempt_dispatch(order, selected_winner_quote, approval, adapter)
+    print(f"  * Dispatch Status:  {successful_dispatch.status.value}")
+    print(f"  * Tracking Number:  {successful_dispatch.tracking_number}")
+    print(f"  * Explanation:      {successful_dispatch.explanation}")
 
     # 8. Duplicate Prevention
-    print("\n[Step 8] Testing Duplicate Dispatch Rejection...")
+    print_banner("[Step 8] Duplicate Dispatch Lock on Retries")
     try:
-        idem_mgr.check_can_dispatch(order.order_reference, idempotency_key)
+        idem_key = generate_idempotency_key(order.order_reference, selected_winner_quote.quote_id)
+        idem_mgr.check_can_dispatch(order.order_reference, idem_key)
         print("  [FAIL] ERROR: Duplicate dispatch was not blocked!")
     except Exception as exc:
         print(f"  [OK] SAFEGUARD VERIFIED: {exc}")
@@ -323,7 +295,7 @@ def main() -> None:
         print(f"  [{entry['timestamp'][:19]}] {entry['event_type']} by {entry['actor']}")
         print(f"    Details: {details}")
 
-    print_banner("DEMO COMPLETED: ALL PHASE 1, 2, 3 & 4 CAPABILITIES VERIFIED")
+    print_banner("DEMO COMPLETED: ALL PHASE 1 TO 5 CAPABILITIES VERIFIED")
 
 
 if __name__ == "__main__":

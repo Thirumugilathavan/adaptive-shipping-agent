@@ -106,3 +106,11 @@ class CourierProvider(ABC):
         Cancel a previously created shipment if supported.
         """
         pass
+
+    def lookup_shipment_by_reference(self, order_reference: str) -> Optional[ShipmentResult]:
+        """
+        Query provider for an existing shipment created under this order reference.
+        Used for safe post-timeout reconciliation.
+        Default implementation returns None if provider does not support reference-based lookup.
+        """
+        return None

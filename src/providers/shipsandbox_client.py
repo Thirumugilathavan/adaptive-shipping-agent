@@ -100,6 +100,12 @@ class ShipSandboxClient(CourierProvider):
             "ShipSandbox shipment cancellation endpoint is not confirmed in verified documentation."
         )
 
+    def lookup_shipment_by_reference(self, order_reference: str) -> Optional[ShipmentResult]:
+        """Disabled: Shipment lookup endpoint not confirmed in specification."""
+        raise UnconfirmedEndpointError(
+            "ShipSandbox reference-based shipment lookup endpoint is not confirmed in verified documentation."
+        )
+
     def get_tracking(self, tracking_number: str) -> TrackingResult:
         """
         Verified endpoint: Queries the documented ShipSandbox tracking resource.
