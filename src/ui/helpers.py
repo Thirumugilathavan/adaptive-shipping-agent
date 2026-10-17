@@ -1,0 +1,278 @@
+"""
+UI Helper Functions and Session State Management.
+Pure functions (no Streamlit state) for input validation, formatting,
+and converting domain objects into display-ready structures.
+These helpers contain NO business logic duplicates – they only call existing domain modules.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from pydantic import ValidationError
+
+from src.domain.models import (
+    Address,
+    CostBreakdown,
+    CourierQuote,
+    Dimensions,
+    OrderInput,
+    PackageType,
+    ShipmentStatus,
+    WeightResult,
+)
+from src.domain.freshness import QuoteFreshnessStatus, check_quote_freshness
+from src.domain.ranking import RankingResult, RankedCourierQuote
+
+
+# ---------------------------------------------------------------------------
+# Input Validation Helpers
+# ---------------------------------------------------------------------------
+
+def validate_pin_code(pin: str) -> tuple[bool, str]:
+    """Return (is_valid, error_message). Empty error = ok."""
+    cleaned = pin.strip()
+    if not cleaned:
+        return False, "PIN code is required."
+    if not re.fullmatch(r"^\d{6}$", cleaned):
+        return False, f"PIN code must be exactly 6 digits (got '{cleaned}')."
+    return True, ""
+
+
+def validate_phone(phone: str) -> tuple[bool, str]:
+    """Return (is_valid, error_message)."""
+    cleaned = re.sub(r"[\s\-\(\)\+]", "", phone.strip())
+    if not cleaned:
+        return False, "Phone number is required."
+    if not re.fullmatch(r"^\d{10,15}$", cleaned):
+        return False, f"Phone must contain 10–15 digits (got '{phone}')."
+    return True, ""
+
+
+def validate_positive_float(value: float, field_name: str, max_val: float = 1e9) -> tuple[bool, str]:
+    """Validate a float is strictly positive and within max_val."""
+    if value <= 0.0:
+        return False, f"{field_name} must be greater than 0."
+    if value > max_val:
+        return False, f"{field_name} exceeds allowed maximum ({max_val})."
+    return True, ""
+
+
+def validate_order_reference(ref: str) -> tuple[bool, str]:
+    """Validate a merchant order reference."""
+    ref = ref.strip()
+    if len(ref) < 3:
+        return False, "Order reference must be at least 3 characters."
+    if len(ref) > 64:
+        return False, "Order reference must be at most 64 characters."
+    return True, ""
+
+
+def build_order_input_from_form(form_data: dict[str, Any]) -> tuple[Optional[OrderInput], list[str]]:
+    """
+    Attempt to construct an OrderInput from flat form_data dict.
+    Returns (order, []) on success, or (None, [error_messages]) on failure.
+    """
+    errors: list[str] = []
+
+    try:
+        sender = Address(
+            name=form_data.get("sender_name", ""),
+            phone=form_data.get("sender_phone", ""),
+            street_line1=form_data.get("sender_street", ""),
+            street_line2=form_data.get("sender_street2") or None,
+            city=form_data.get("sender_city", ""),
+            state=form_data.get("sender_state", ""),
+            pin_code=form_data.get("sender_pin", ""),
+        )
+    except ValidationError as exc:
+        for e in exc.errors():
+            errors.append(f"Sender – {e['loc'][-1]}: {e['msg']}")
+        sender = None  # type: ignore[assignment]
+
+    try:
+        recipient = Address(
+            name=form_data.get("recipient_name", ""),
+            phone=form_data.get("recipient_phone", ""),
+            street_line1=form_data.get("recipient_street", ""),
+            street_line2=form_data.get("recipient_street2") or None,
+            city=form_data.get("recipient_city", ""),
+            state=form_data.get("recipient_state", ""),
+            pin_code=form_data.get("recipient_pin", ""),
+        )
+    except ValidationError as exc:
+        for e in exc.errors():
+            errors.append(f"Recipient – {e['loc'][-1]}: {e['msg']}")
+        recipient = None  # type: ignore[assignment]
+
+    try:
+        dimensions = Dimensions(
+            length_cm=float(form_data.get("length_cm", 0)),
+            width_cm=float(form_data.get("width_cm", 0)),
+            height_cm=float(form_data.get("height_cm", 0)),
+        )
+    except (ValidationError, ValueError) as exc:
+        errors.append(f"Dimensions: {exc}")
+        dimensions = None  # type: ignore[assignment]
+
+    is_cod = bool(form_data.get("is_cod", False))
+    cod_amount = float(form_data.get("cod_amount", 0.0))
+
+    if errors or sender is None or recipient is None or dimensions is None:
+        return None, errors
+
+    try:
+        order = OrderInput(
+            order_reference=form_data.get("order_reference", "").strip(),
+            sender=sender,
+            recipient=recipient,
+            parcel_weight_kg=float(form_data.get("parcel_weight_kg", 0)),
+            dimensions=dimensions,
+            package_type=PackageType(form_data.get("package_type", "box")),
+            is_cod=is_cod,
+            cod_amount=cod_amount,
+            declared_value=float(form_data.get("declared_value", 0.0)),
+            product_description=form_data.get("product_description", "General Merchandise").strip() or "General Merchandise",
+        )
+        return order, []
+    except (ValidationError, ValueError) as exc:
+        if hasattr(exc, "errors"):
+            for e in exc.errors():  # type: ignore[attr-defined]
+                loc = e.get("loc", ())
+                field = loc[-1] if loc else "order"
+                errors.append(f"{field}: {e['msg']}")
+        else:
+            errors.append(str(exc))
+        return None, errors
+
+
+# ---------------------------------------------------------------------------
+# Display Formatters
+# ---------------------------------------------------------------------------
+
+def fmt_inr(amount: float) -> str:
+    """Format a float as Indian Rupees with 2 decimal places."""
+    return f"INR {amount:,.2f}"
+
+
+def fmt_kg(kg: float) -> str:
+    """Format weight in kg."""
+    return f"{kg:.3f} kg"
+
+
+def fmt_age(seconds: float) -> str:
+    """Format seconds as a human-readable age string."""
+    if seconds < 0:
+        return "Unknown"
+    if seconds < 60:
+        return f"{seconds:.1f}s ago"
+    minutes = seconds / 60
+    if minutes < 60:
+        return f"{minutes:.1f}m ago"
+    hours = minutes / 60
+    return f"{hours:.1f}h ago"
+
+
+def freshness_badge(quote: CourierQuote, max_age_seconds: int = 900) -> tuple[str, str]:
+    """
+    Return (label, colour) for Streamlit badge.
+    colour is one of: green, orange, red.
+    """
+    check = check_quote_freshness(quote, max_age_seconds=max_age_seconds)
+    age_str = fmt_age(check.age_seconds)
+    if check.status == QuoteFreshnessStatus.FRESH:
+        return f"Fresh ({age_str})", "green"
+    elif check.status == QuoteFreshnessStatus.EXPIRED:
+        return f"Expired ({age_str})", "red"
+    else:
+        return "Unverifiable", "orange"
+
+
+def quote_source_badge(quote: CourierQuote) -> str:
+    """Return a prominent DEMO DATA or LIVE label string."""
+    if quote.is_demo_data:
+        return "🔵 DEMO DATA — Simulated rate, not a live carrier price"
+    return "🟢 LIVE QUOTE"
+
+
+def format_cost_breakdown(cb: CostBreakdown) -> dict[str, str]:
+    """Return a display-ready ordered dict of cost line items."""
+    return {
+        "Base Freight": fmt_inr(cb.base_freight),
+        f"Fuel Surcharge ({cb.fuel_surcharge_rate_pct}%)": fmt_inr(cb.fuel_surcharge),
+        "COD Fee": fmt_inr(cb.cod_fee),
+        "Handling Fee": fmt_inr(cb.handling_fee),
+        "Subtotal (before tax)": fmt_inr(cb.subtotal_before_tax),
+        f"GST ({cb.tax_rate_pct}%)": fmt_inr(cb.tax_amount),
+        "**Total Landed Cost**": f"**{fmt_inr(cb.total_cost)}**",
+    }
+
+
+def format_weight_breakdown(wr: WeightResult) -> dict[str, str]:
+    """Return a display-ready ordered dict of weight breakdown."""
+    penalty = " ⚠️ Volumetric Penalty" if wr.is_volumetric_penalty else " ✅ Dead-weight Higher"
+    return {
+        "Actual (Dead) Weight": fmt_kg(wr.actual_weight_kg),
+        "Volumetric Weight": fmt_kg(wr.volumetric_weight_kg),
+        f"Volumetric Divisor (Demo default: 5000 cm³/kg)": f"{wr.divisor_used:,.0f} cm³/kg",
+        "Chargeable Weight": fmt_kg(wr.chargeable_weight_kg) + penalty,
+        "Billing Slab": fmt_kg(wr.billing_slab_kg),
+    }
+
+
+def shipment_status_colour(status: ShipmentStatus) -> str:
+    """Map shipment status to a Streamlit colour string."""
+    mapping = {
+        ShipmentStatus.DRAFT: "gray",
+        ShipmentStatus.QUOTED: "blue",
+        ShipmentStatus.PENDING_APPROVAL: "orange",
+        ShipmentStatus.DISPATCHING: "orange",
+        ShipmentStatus.CREATED: "green",
+        ShipmentStatus.CREATION_UNCERTAIN: "red",
+        ShipmentStatus.CANCELLED: "gray",
+        ShipmentStatus.FAILED: "red",
+    }
+    return mapping.get(status, "gray")
+
+
+def format_audit_event(row: dict[str, Any]) -> dict[str, str]:
+    """Prepare an audit log row for display. Parses JSON safely."""
+    try:
+        details = json.loads(row.get("details_json", "{}"))
+    except (json.JSONDecodeError, TypeError):
+        details = {"raw": str(row.get("details_json", ""))}
+
+    timestamp_raw = row.get("timestamp", "")
+    try:
+        dt = datetime.fromisoformat(timestamp_raw)
+        timestamp_display = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+    except (ValueError, TypeError):
+        timestamp_display = timestamp_raw
+
+    return {
+        "timestamp": timestamp_display,
+        "event": row.get("event_type", ""),
+        "actor": row.get("actor", ""),
+        "order_ref": row.get("order_reference") or "—",
+        "details_preview": json.dumps(details, indent=2)[:300],
+    }
+
+
+def describe_ranking_result(result: RankingResult) -> str:
+    """Produce a short human-readable explanation of a ranking result."""
+    if result.selected_winner is None:
+        return result.decision_explanation
+
+    w = result.selected_winner
+    parts = [f"**Recommended courier:** {w.quote.courier_name} ({w.quote.service_type})"]
+    parts.append(f"**Total landed cost:** {fmt_inr(w.total_cost)}")
+    if w.estimated_delivery_days:
+        parts.append(f"**Estimated delivery:** {w.estimated_delivery_days} business days")
+    parts.append(f"**Strategy:** {result.mode.value.replace('_', ' ').title()}")
+    if result.cost_margin_over_runner_up is not None and result.cost_margin_over_runner_up > 0:
+        parts.append(f"**Cost margin over runner-up:** {fmt_inr(result.cost_margin_over_runner_up)}")
+    parts.append(f"\n_{result.decision_explanation}_")
+    return "  \n".join(parts)
