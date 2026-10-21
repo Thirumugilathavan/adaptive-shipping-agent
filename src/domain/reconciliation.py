@@ -69,6 +69,8 @@ class DispatchAttemptResult(BaseModel):
     shipment_id: str
     status: ShipmentStatus
     tracking_number: Optional[str] = None
+    label_status: str = "UNSUPPORTED"
+    label_data: Optional[str] = None
     is_uncertain: bool = False
     requires_reconciliation: bool = False
     error_message: Optional[str] = None
@@ -213,6 +215,8 @@ class ShipmentDispatchService:
                 shipment_id=shipment_id,
                 status=ShipmentStatus.CREATED,
                 tracking_number=shipment_result.tracking_number,
+                label_status=shipment_result.label_status,
+                label_data=shipment_result.label_url_or_data,
                 is_uncertain=False,
                 requires_reconciliation=False,
                 explanation=f"Shipment successfully created with tracking reference {shipment_result.tracking_number}.",

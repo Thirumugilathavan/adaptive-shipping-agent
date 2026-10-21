@@ -20,6 +20,28 @@ class PackageType(str, Enum):
     ENVELOPE = "envelope"
     WOODEN_CRATE = "wooden_crate"
     CUSTOM = "custom"
+    POLYBAG = "polybag"
+    TUBE = "tube"
+    CUSTOM_CRATE = "custom_crate"
+
+
+def parse_package_type(val: str | PackageType) -> PackageType:
+    """Safely map user-facing packaging type string to PackageType enum."""
+    if isinstance(val, PackageType):
+        return val
+    cleaned = str(val).strip().lower().replace(" ", "_").replace("-", "_")
+    mapping = {
+        "box": PackageType.BOX,
+        "polybag": PackageType.POLYBAG,
+        "flyer": PackageType.FLYER,
+        "envelope": PackageType.ENVELOPE,
+        "tube": PackageType.TUBE,
+        "wooden_crate": PackageType.WOODEN_CRATE,
+        "custom_crate": PackageType.CUSTOM_CRATE,
+        "crate": PackageType.CUSTOM_CRATE,
+        "custom": PackageType.CUSTOM,
+    }
+    return mapping.get(cleaned, PackageType.CUSTOM)
 
 
 class ShipmentStatus(str, Enum):
@@ -164,6 +186,14 @@ class CourierQuote(BaseModel):
     input_hash: str = Field(..., description="Deterministic hash of the inputs used for this quote")
     decision_explanation: str = Field(default="", description="Clear explanation of cost & SLA factors")
     is_demo_data: bool = Field(default=True, description="Explicit flag: Demo/synthetic data disclosure")
+    eligibility_status: str = Field(
+        default="ELIGIBLE",
+        description="Explicit eligibility: ELIGIBLE, INELIGIBLE, UNVERIFIED, STALE, PENDING"
+    )
+    evidence_source: Optional[str] = Field(default=None, description="Official published documentation title")
+    evidence_url: Optional[str] = Field(default=None, description="Official documentation URL")
+    eligibility_reasons: list[str] = Field(default_factory=list, description="Documented restriction rejection reasons")
+    unverified_reasons: list[str] = Field(default_factory=list, description="Reasons for unverified status")
     missing_evidence: list[str] = Field(
         default_factory=list,
         description="List of unverified or missing data points (e.g. unverified API endpoint)"

@@ -34,6 +34,20 @@ class TrackingResult(BaseModel):
     disclaimer: str = "DEMO TRACKING: Simulated status history for demonstration only."
 
 
+class PickupResult(BaseModel):
+    """Result of a carrier pickup scheduling operation."""
+    pickup_reference: str
+    order_reference: str
+    courier_code: str
+    scheduled_date: str
+    time_window: str
+    pickup_address_summary: str
+    status: str = "CONFIRMED"  # 'CONFIRMED', 'PENDING', 'FAILED'
+    is_demo_data: bool = True
+    disclaimer: str = "DEMO PICKUP: Simulated pickup scheduling confirmation."
+    raw_response: dict[str, Any] = Field(default_factory=dict)
+
+
 class ShipmentResult(BaseModel):
     """Outcome of a shipment creation request."""
     shipment_id: str
@@ -106,6 +120,20 @@ class CourierProvider(ABC):
         Cancel a previously created shipment if supported.
         """
         pass
+
+    def schedule_pickup(self, shipment_id: str) -> Optional[PickupResult]:
+        """
+        Schedule a package pickup for the specified shipment.
+        Default implementation returns None if provider does not support pickup scheduling.
+        """
+        return None
+
+    def generate_label(self, shipment_id: str) -> Optional[str]:
+        """
+        Generate or fetch shipping label printable data (HTML/SVG/URL/base64).
+        Default implementation returns None if provider does not support labels.
+        """
+        return None
 
     def lookup_shipment_by_reference(self, order_reference: str) -> Optional[ShipmentResult]:
         """

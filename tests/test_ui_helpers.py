@@ -560,3 +560,112 @@ class TestOrderToRankingFlow:
                 assert q.cost_breakdown is None, (
                     f"Ineligible courier {q.courier_name} must not have a silent-zero cost breakdown"
                 )
+
+
+
+class TestRateComparisonExpanderState:
+    """Regression tests for st.expander expanded state and missing winner handling."""
+
+    def test_winner_expander_state_is_strictly_boolean_with_winner(self):
+        order, _ = build_order_input_from_form(VALID_FORM_DATA)
+        from src.providers.registry import get_provider
+        from src.domain.ranking import RankingMode, RankingPreferences, rank_couriers
+
+        provider = get_provider("demo")
+        quotes = provider.get_rates(order)
+        ranking_result = rank_couriers(quotes, RankingPreferences(mode=RankingMode.LOWEST_COST))
+        assert ranking_result.selected_winner is not None
+
+        winner_quote_id = (
+            ranking_result.selected_winner.quote.quote_id
+            if (ranking_result and getattr(ranking_result, "selected_winner", None) and getattr(ranking_result.selected_winner, "quote", None))
+            else None
+        )
+        assert winner_quote_id is not None
+
+        eligible = [q for q in quotes if q.is_eligible]
+        for quote in eligible:
+            is_winner = bool(winner_quote_id and quote.quote_id == winner_quote_id)
+            assert isinstance(is_winner, bool)
+            assert is_winner is not None
+
+        # Exactly one quote must match the recommended winner
+        winner_quotes = [q for q in eligible if bool(winner_quote_id and q.quote_id == winner_quote_id)]
+        assert len(winner_quotes) == 1
+
+    def test_missing_winner_expander_state_is_strictly_boolean_false(self):
+        """When ranking_result has no winner, is_winner must be False (never None)."""
+        ranking_result = None
+        winner_quote_id = (
+            ranking_result.selected_winner.quote.quote_id
+            if (ranking_result and getattr(ranking_result, "selected_winner", None) and getattr(ranking_result.selected_winner, "quote", None))
+            else None
+        )
+        assert winner_quote_id is None
+
+        test_quote_ids = ["Q1", "Q2", "Q3"]
+        for qid in test_quote_ids:
+            is_winner = bool(winner_quote_id and qid == winner_quote_id)
+            assert is_winner is False
+            assert isinstance(is_winner, bool)
+
+    def test_ranking_result_with_none_winner_does_not_evaluate_to_none(self):
+        """When ranking_result is present but selected_winner is None, is_winner must be False."""
+        from unittest.mock import MagicMock
+        ranking_result = MagicMock()
+        ranking_result.selected_winner = None
+
+        winner_quote_id = (
+            ranking_result.selected_winner.quote.quote_id
+            if (ranking_result and getattr(ranking_result, "selected_winner", None) and getattr(ranking_result.selected_winner, "quote", None))
+            else None
+        )
+        assert winner_quote_id is None
+
+        is_winner = bool(winner_quote_id and "Q1" == winner_quote_id)
+        assert is_winner is False
+        assert isinstance(is_winner, bool)
+
+    def test_streamlit_expander_rejects_none_but_accepts_booleans(self):
+        """Verifies Streamlit st.expander protobuf behavior with bool vs None."""
+        import streamlit as st
+
+        # True and False must succeed
+        with st.expander("test true", expanded=True):
+            pass
+        with st.expander("test false", expanded=False):
+            pass
+
+        # None must raise TypeError ('NoneType' object cannot be interpreted as an integer)
+        with pytest.raises(TypeError, match="cannot be interpreted as an integer"):
+            with st.expander("test none", expanded=None):
+                pass
+
+    def test_render_rate_comparison_handles_missing_and_present_winner(self):
+        """Smoke test _render_rate_comparison with both valid and missing recommendations."""
+        import streamlit as st
+        from unittest.mock import MagicMock
+        from src.providers.registry import get_provider
+        from src.domain.ranking import RankingMode, RankingPreferences, rank_couriers
+        from src.ui.app import _render_rate_comparison
+
+        order, _ = build_order_input_from_form(VALID_FORM_DATA)
+        provider = get_provider("demo")
+        quotes = provider.get_rates(order)
+        ranking_result = rank_couriers(quotes, RankingPreferences(mode=RankingMode.LOWEST_COST))
+
+        # 1. Normal ranking result with winner
+        st.session_state["order"] = order
+        st.session_state["quotes"] = quotes
+        st.session_state["ranking_result"] = ranking_result
+        _render_rate_comparison()
+
+        # 2. Missing ranking result (None)
+        st.session_state["ranking_result"] = None
+        _render_rate_comparison()
+
+        # 3. Missing winner (selected_winner = None)
+        mock_rank = MagicMock()
+        mock_rank.selected_winner = None
+        st.session_state["ranking_result"] = mock_rank
+        _render_rate_comparison()

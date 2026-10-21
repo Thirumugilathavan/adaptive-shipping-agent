@@ -217,3 +217,38 @@ def test_secret_sanitization():
     assert clean_data["safe_field"] == "Delhi to Mumbai"
     assert "[REDACTED]" in clean_data["raw_log"]
     assert "secret_live_token" not in clean_data["raw_log"]
+
+
+def test_proposal_change_requires_reapproval(test_db):
+    """If the proposal changes (different quote_id or price drift), approval is invalidated."""
+    from src.domain.reconciliation import ShipmentDispatchService, ApprovalInvalidatedError
+    from src.providers.demo_adapter import DemoShippingAdapter
+    from tests.test_demo_adapter import create_sample_order
+
+    order = create_sample_order()
+    adapter = DemoShippingAdapter()
+    quotes = adapter.get_rates(order)
+    q1 = quotes[0]
+    q2 = quotes[1]
+
+    audit = AuditLogger(test_db)
+    idem_mgr = IdempotencyManager(test_db)
+    service = ShipmentDispatchService(test_db, audit, idem_mgr)
+
+    # 1. Approval quote_id does not match selected quote
+    mismatched_approval = ApprovalRecord(
+        approved_by="Jane Operator",
+        quote_id=q2.quote_id,  # Approved for Q2, but dispatched with Q1
+        total_cost=q1.cost_breakdown.total_cost,
+    )
+    with pytest.raises(ApprovalInvalidatedError, match="does not match"):
+        service.attempt_dispatch(order, q1, mismatched_approval, adapter)
+
+    # 2. Approved cost does not match active quote landed cost
+    cost_mismatch_approval = ApprovalRecord(
+        approved_by="Jane Operator",
+        quote_id=q1.quote_id,
+        total_cost=q1.cost_breakdown.total_cost + 50.0,  # Changed cost
+    )
+    with pytest.raises(ApprovalInvalidatedError, match="does not match quote landed cost"):
+        service.attempt_dispatch(order, q1, cost_mismatch_approval, adapter)
