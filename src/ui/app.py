@@ -156,14 +156,15 @@ def _init_session():
         "has_provided_dimensions": True,
         "excluded_courier_codes": [],
         "_last_seen_measurements": None,
-        "_input_len": None,
-        "_input_wid": None,
-        "_input_hgt": None,
-        "_input_weight": None,
-        "_prod_len": None,
-        "_prod_wid": None,
-        "_prod_hgt": None,
-        "_prod_weight": None,
+        "_parcel_length_cm": None,
+        "_parcel_width_cm": None,
+        "_parcel_height_cm": None,
+        "_parcel_weight_kg": None,
+        "_unpacked_length_cm": None,
+        "_unpacked_width_cm": None,
+        "_unpacked_height_cm": None,
+        "_unpacked_weight_kg": None,
+        "dim_mode_choice": "Direct Packed Parcel Outer Dimensions",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -289,14 +290,15 @@ def render_sidebar():
                     "excluded_courier_codes": [],
                     "_pickup_pin": order_demo.sender.pin_code,
                     "_delivery_pin": order_demo.recipient.pin_code,
-                    "_input_len": order_demo.dimensions.length_cm,
-                    "_input_wid": order_demo.dimensions.width_cm,
-                    "_input_hgt": order_demo.dimensions.height_cm,
-                    "_input_weight": order_demo.parcel_weight_kg,
+                    "_parcel_length_cm": order_demo.dimensions.length_cm,
+                    "_parcel_width_cm": order_demo.dimensions.width_cm,
+                    "_parcel_height_cm": order_demo.dimensions.height_cm,
+                    "_parcel_weight_kg": order_demo.parcel_weight_kg,
                     "form_dim_len": order_demo.dimensions.length_cm,
                     "form_dim_wid": order_demo.dimensions.width_cm,
                     "form_dim_hgt": order_demo.dimensions.height_cm,
                     "form_dim_weight": order_demo.parcel_weight_kg,
+                    "dim_mode_choice": "Direct Packed Parcel Outer Dimensions",
                     "_last_seen_measurements": (
                         order_demo.dimensions.length_cm,
                         order_demo.dimensions.width_cm,
@@ -386,50 +388,63 @@ def _render_ship_a_parcel_form():
                     "Length (cm) *",
                     min_value=0.0,
                     max_value=500.0,
-                    value=st.session_state.get("_input_len"),
+                    value=st.session_state.get("_parcel_length_cm"),
                     step=0.5,
                     format="%.2f",
                     help="Parcel outer length in cm (must be > 0).",
                     key="form_dim_len",
                 )
+                if val_l is not None:
+                    st.session_state["_parcel_length_cm"] = float(val_l)
             with mc2:
                 val_w = st.number_input(
                     "Width (cm) *",
                     min_value=0.0,
                     max_value=500.0,
-                    value=st.session_state.get("_input_wid"),
+                    value=st.session_state.get("_parcel_width_cm"),
                     step=0.5,
                     format="%.2f",
                     help="Parcel outer width in cm (must be > 0).",
                     key="form_dim_wid",
                 )
+                if val_w is not None:
+                    st.session_state["_parcel_width_cm"] = float(val_w)
             with mc3:
                 val_h = st.number_input(
                     "Height (cm) *",
                     min_value=0.0,
                     max_value=500.0,
-                    value=st.session_state.get("_input_hgt"),
+                    value=st.session_state.get("_parcel_height_cm"),
                     step=0.5,
                     format="%.2f",
                     help="Parcel outer height in cm (must be > 0).",
                     key="form_dim_hgt",
                 )
+                if val_h is not None:
+                    st.session_state["_parcel_height_cm"] = float(val_h)
             with mc4:
                 val_wt = st.number_input(
                     "Actual Gross Weight (kg) *",
                     min_value=0.0,
                     max_value=1000.0,
-                    value=st.session_state.get("_input_weight"),
+                    value=st.session_state.get("_parcel_weight_kg"),
                     step=0.1,
                     format="%.2f",
                     help="Gross weight of packed parcel in kg (must be > 0).",
                     key="form_dim_weight",
                 )
+                if val_wt is not None:
+                    st.session_state["_parcel_weight_kg"] = float(val_wt)
 
-            effective_len = val_l
-            effective_wid = val_w
-            effective_hgt = val_h
-            effective_weight = val_wt
+            cur_l = val_l if val_l is not None else st.session_state.get("_parcel_length_cm")
+            cur_w = val_w if val_w is not None else st.session_state.get("_parcel_width_cm")
+            cur_h = val_h if val_h is not None else st.session_state.get("_parcel_height_cm")
+            cur_wt = val_wt if val_wt is not None else st.session_state.get("_parcel_weight_kg")
+
+            effective_len = cur_l
+            effective_wid = cur_w
+            effective_hgt = cur_h
+            effective_weight = cur_wt
 
         else:
             pc1, pc2, pc3, pc4 = st.columns(4)
@@ -438,49 +453,62 @@ def _render_ship_a_parcel_form():
                     "Product Length (cm) *",
                     min_value=0.0,
                     max_value=500.0,
-                    value=st.session_state.get("_prod_len"),
+                    value=st.session_state.get("_unpacked_length_cm"),
                     step=0.5,
                     format="%.2f",
                     help="Unpacked item length in cm.",
                     key="form_prod_len",
                 )
+                if val_pl is not None:
+                    st.session_state["_unpacked_length_cm"] = float(val_pl)
             with pc2:
                 val_pw = st.number_input(
                     "Product Width (cm) *",
                     min_value=0.0,
                     max_value=500.0,
-                    value=st.session_state.get("_prod_wid"),
+                    value=st.session_state.get("_unpacked_width_cm"),
                     step=0.5,
                     format="%.2f",
                     help="Unpacked item width in cm.",
                     key="form_prod_wid",
                 )
+                if val_pw is not None:
+                    st.session_state["_unpacked_width_cm"] = float(val_pw)
             with pc3:
                 val_ph = st.number_input(
                     "Product Height (cm) *",
                     min_value=0.0,
                     max_value=500.0,
-                    value=st.session_state.get("_prod_hgt"),
+                    value=st.session_state.get("_unpacked_height_cm"),
                     step=0.5,
                     format="%.2f",
                     help="Unpacked item height in cm.",
                     key="form_prod_hgt",
                 )
+                if val_ph is not None:
+                    st.session_state["_unpacked_height_cm"] = float(val_ph)
             with pc4:
                 val_pwt = st.number_input(
                     "Product Net Weight (kg) *",
                     min_value=0.0,
                     max_value=1000.0,
-                    value=st.session_state.get("_prod_weight"),
+                    value=st.session_state.get("_unpacked_weight_kg"),
                     step=0.1,
                     format="%.2f",
                     help="Net dead weight of unpacked item in kg.",
                     key="form_prod_weight",
                 )
+                if val_pwt is not None:
+                    st.session_state["_unpacked_weight_kg"] = float(val_pwt)
 
-            ok_prod, _, _ = validate_shipment_measurements(val_pl, val_pw, val_ph, val_pwt)
+            cur_pl = val_pl if val_pl is not None else st.session_state.get("_unpacked_length_cm")
+            cur_pw = val_pw if val_pw is not None else st.session_state.get("_unpacked_width_cm")
+            cur_ph = val_ph if val_ph is not None else st.session_state.get("_unpacked_height_cm")
+            cur_pwt = val_pwt if val_pwt is not None else st.session_state.get("_unpacked_weight_kg")
+
+            ok_prod, _, _ = validate_shipment_measurements(cur_pl, cur_pw, cur_ph, cur_pwt)
             if ok_prod:
-                prod_dims = Dimensions(length_cm=val_pl, width_cm=val_pw, height_cm=val_ph)
+                prod_dims = Dimensions(length_cm=float(cur_pl), width_cm=float(cur_pw), height_cm=float(cur_ph))
                 db_svc = get_db()
                 custom_pkgs_saved = [
                     CustomPackaging(
@@ -496,7 +524,7 @@ def _render_ship_a_parcel_form():
                 ]
                 alternatives = evaluate_packaging_alternatives(
                     product_dimensions=prod_dims,
-                    product_net_weight_kg=val_pwt,
+                    product_net_weight_kg=float(cur_pwt),
                     current_outer_dimensions=prod_dims,
                     custom_packages=custom_pkgs_saved,
                     couriers=ALL_DEMO_COURIERS,
@@ -507,30 +535,30 @@ def _render_ship_a_parcel_form():
                     effective_len = best_opt.outer_dimensions.length_cm
                     effective_wid = best_opt.outer_dimensions.width_cm
                     effective_hgt = best_opt.outer_dimensions.height_cm
-                    effective_weight = round(val_pwt + best_opt.tare_weight_kg, 3)
+                    effective_weight = round(float(cur_pwt) + best_opt.tare_weight_kg, 3)
                     st.info(
                         f"💡 **Recommended Packaging: {best_opt.box_name}**  \n"
                         f"• Outer Dimensions: `{effective_len} × {effective_wid} × {effective_hgt} cm`  \n"
                         f"• Packaging Tare: `+{best_opt.tare_weight_kg:.2f} kg`  \n"
-                        f"• Packed Gross Weight: `{effective_weight:.2f} kg` (Net: {val_pwt:.2f} kg + Tare: {best_opt.tare_weight_kg:.2f} kg)  \n"
+                        f"• Packed Gross Weight: `{effective_weight:.2f} kg` (Net: {float(cur_pwt):.2f} kg + Tare: {best_opt.tare_weight_kg:.2f} kg)  \n"
                         f"*These packed measurements will be used for carrier rating and eligibility.*"
                     )
                 else:
-                    effective_len = val_pl
-                    effective_wid = val_pw
-                    effective_hgt = val_ph
-                    effective_weight = val_pwt
+                    effective_len = cur_pl
+                    effective_wid = cur_pw
+                    effective_hgt = cur_ph
+                    effective_weight = cur_pwt
                     st.warning("⚠️ No standard catalog box fits this unpacked item. Outer product dimensions used as fallback.")
             else:
-                effective_len = val_pl
-                effective_wid = val_pw
-                effective_hgt = val_ph
-                effective_weight = val_pwt
+                effective_len = cur_pl
+                effective_wid = cur_pw
+                effective_hgt = cur_ph
+                effective_weight = cur_pwt
 
         # Detect changes in measurements and invalidate stale downstream data
         last_m = st.session_state.get("_last_seen_measurements")
         current_m = (effective_len, effective_wid, effective_hgt, effective_weight)
-        if last_m is not None and last_m != current_m:
+        if st.session_state.get("quotes") and last_m is not None and last_m != current_m:
             st.session_state["quotes"] = None
             st.session_state["ranking_result"] = None
             st.session_state["selected_quote"] = None
@@ -596,11 +624,32 @@ def _render_ship_a_parcel_form():
     if submit_btn:
         ok_p, err_p = validate_pin_code(pickup_pin, pin_type="pickup")
         ok_d, err_d = validate_pin_code(delivery_pin, pin_type="delivery")
+
+        # Resolve latest active measurements
+        if dim_mode == "Direct Packed Parcel Outer Dimensions":
+            sub_l = val_l if val_l is not None else st.session_state.get("form_dim_len", st.session_state.get("_parcel_length_cm"))
+            sub_w = val_w if val_w is not None else st.session_state.get("form_dim_wid", st.session_state.get("_parcel_width_cm"))
+            sub_h = val_h if val_h is not None else st.session_state.get("form_dim_hgt", st.session_state.get("_parcel_height_cm"))
+            sub_wt = val_wt if val_wt is not None else st.session_state.get("form_dim_weight", st.session_state.get("_parcel_weight_kg"))
+            active_eff_l = sub_l
+            active_eff_w = sub_w
+            active_eff_h = sub_h
+            active_eff_wt = sub_wt
+        else:
+            sub_pl = val_pl if val_pl is not None else st.session_state.get("form_prod_len", st.session_state.get("_unpacked_length_cm"))
+            sub_pw = val_pw if val_pw is not None else st.session_state.get("form_prod_wid", st.session_state.get("_unpacked_width_cm"))
+            sub_ph = val_ph if val_ph is not None else st.session_state.get("form_prod_hgt", st.session_state.get("_unpacked_height_cm"))
+            sub_pwt = val_pwt if val_pwt is not None else st.session_state.get("form_prod_weight", st.session_state.get("_unpacked_weight_kg"))
+            active_eff_l = effective_len if effective_len is not None else sub_pl
+            active_eff_w = effective_wid if effective_wid is not None else sub_pw
+            active_eff_h = effective_hgt if effective_hgt is not None else sub_ph
+            active_eff_wt = effective_weight if effective_weight is not None else sub_pwt
+
         ok_m, field_errs, err_measurements = validate_shipment_measurements(
-            length_cm=effective_len,
-            width_cm=effective_wid,
-            height_cm=effective_hgt,
-            parcel_weight_kg=effective_weight,
+            length_cm=active_eff_l,
+            width_cm=active_eff_w,
+            height_cm=active_eff_h,
+            parcel_weight_kg=active_eff_wt,
         )
 
         errs = []
@@ -643,13 +692,13 @@ def _render_ship_a_parcel_form():
             state=r_state.strip() or "IN",
             pin_code=delivery_pin.strip(),
         )
-        dims = Dimensions(length_cm=float(effective_len), width_cm=float(effective_wid), height_cm=float(effective_hgt))
+        dims = Dimensions(length_cm=float(active_eff_l), width_cm=float(active_eff_w), height_cm=float(active_eff_h))
 
         order = OrderInput(
             order_reference=order_ref.strip() or f"ORD-{uuid.uuid4().hex[:8].upper()}",
             sender=sender,
             recipient=recipient,
-            parcel_weight_kg=float(effective_weight),
+            parcel_weight_kg=float(active_eff_wt),
             dimensions=dims,
             package_type=PackageType.BOX,
             is_cod=is_cod,
@@ -659,10 +708,10 @@ def _render_ship_a_parcel_form():
 
         st.session_state["order"] = order
         st.session_state["has_provided_dimensions"] = True
-        st.session_state["_input_len"] = float(effective_len)
-        st.session_state["_input_wid"] = float(effective_wid)
-        st.session_state["_input_hgt"] = float(effective_hgt)
-        st.session_state["_input_weight"] = float(effective_weight)
+        st.session_state["_parcel_length_cm"] = float(active_eff_l)
+        st.session_state["_parcel_width_cm"] = float(active_eff_w)
+        st.session_state["_parcel_height_cm"] = float(active_eff_h)
+        st.session_state["_parcel_weight_kg"] = float(active_eff_wt)
         st.session_state["excluded_courier_codes"] = []
         st.session_state["approval_given"] = False
         st.session_state["approved_record"] = None
