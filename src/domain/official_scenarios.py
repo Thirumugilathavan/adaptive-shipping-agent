@@ -401,6 +401,46 @@ class OfficialScenariosRunner:
         self._persist_result(result)
         return result
 
+    def run_single(self, test_case_id: str) -> OfficialTestCaseResult:
+        """Execute a single official test case by ID (TC1, TC2, TC3, TC4)."""
+        clean_id = test_case_id.upper().strip()
+        dispatch = {
+            "TC1": self.run_tc1,
+            "TC2": self.run_tc2,
+            "TC3": self.run_tc3,
+            "TC4": self.run_tc4,
+        }
+        runner = dispatch.get(clean_id)
+        if not runner:
+            res = OfficialTestCaseResult(
+                test_case_id=clean_id,
+                test_case_name=f"Official {clean_id}",
+                status="ERROR",
+                input_record={},
+                expected_result="Valid test case ID",
+                actual_result=f"Unrecognized test case identifier: {clean_id}",
+                evidence_references={},
+                explanation=f"Valid IDs are TC1, TC2, TC3, TC4.",
+            )
+            self._persist_result(res)
+            return res
+
+        try:
+            return runner()
+        except Exception as exc:
+            res = OfficialTestCaseResult(
+                test_case_id=clean_id,
+                test_case_name=f"Official {clean_id}",
+                status="ERROR",
+                input_record={},
+                expected_result="Clean test execution",
+                actual_result=f"Error: {type(exc).__name__}: {str(exc)}",
+                evidence_references={"exception_type": type(exc).__name__, "message": str(exc)},
+                explanation=f"Test case execution raised unhandled exception: {exc}",
+            )
+            self._persist_result(res)
+            return res
+
     def run_all(self) -> list[OfficialTestCaseResult]:
         """Execute all four official test scenarios in sequence."""
         return [

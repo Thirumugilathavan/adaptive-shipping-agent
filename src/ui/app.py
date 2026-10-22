@@ -34,6 +34,8 @@ from typing import Any, Dict, List, Optional
 import streamlit as st
 
 # ── Domain imports ──────────────────────────────────────────────────────────
+from src.domain.evaluator import EvaluatorSuite, SCENARIO_METADATA, ScenarioStatus
+from src.domain.official_scenarios import OfficialScenariosRunner, OfficialTestCaseResult
 from src.domain.freshness import check_quote_freshness
 from src.domain.models import (
     Address,
@@ -165,6 +167,8 @@ def _init_session():
         "_unpacked_height_cm": None,
         "_unpacked_weight_kg": None,
         "dim_mode_choice": "Direct Packed Parcel Outer Dimensions",
+        "scenario_test_results": {},
+        "official_test_results": {},
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -198,115 +202,157 @@ def render_sidebar():
         st.caption("Provider: Demo Multi-Courier Adapter (Simulated)")
         st.divider()
         st.markdown("**🎯 Evaluator 1-Click Scenarios**")
+        scenario_options = [
+            "None (Manual Input)",
+            "Demo A: Normal Parcel (Standard comparison & booking)",
+            "Demo B: Oversized Elongated Item (110cm custom box)",
+            "Demo C: Cheapest Option Rejected (Re-choice)",
+            "Demo D: Ambiguous Booking & Reconciliation",
+            "Demo E: Official TC1 (Same Parcel on 3 Couriers)",
+            "Demo F: Official TC2 (Large, Light Box)",
+            "Demo G: Official TC3 (Destination PIN Not Serviceable)",
+            "Demo H: Official TC4 (Label Created & AWB Verification)",
+            "Demo I: Mandatory Measurements & COD Validation",
+            "Demo J: No Eligible Couriers, API Failure & Stale Results",
+        ]
+
+        def _map_demo_choice_to_id(choice: str) -> Optional[str]:
+            if "Demo A" in choice: return "DEMO_A"
+            if "Demo B" in choice: return "DEMO_B"
+            if "Demo C" in choice: return "DEMO_C"
+            if "Demo D" in choice: return "DEMO_D"
+            if "Demo E" in choice or "TC1" in choice: return "DEMO_E"
+            if "Demo F" in choice or "TC2" in choice: return "DEMO_F"
+            if "Demo G" in choice or "TC3" in choice: return "DEMO_G"
+            if "Demo H" in choice or "TC4" in choice: return "DEMO_H"
+            if "Demo I" in choice: return "DEMO_I"
+            if "Demo J" in choice: return "DEMO_J"
+            return None
+
+        # Determine index to preserve selection across reruns
+        current_active = st.session_state.get("active_demo_scenario", "None (Manual Input)")
+        def_idx = 0
+        for i, opt in enumerate(scenario_options):
+            if current_active and (current_active in opt or opt in current_active):
+                def_idx = i
+                break
+
         demo_choice = st.selectbox(
             "Select Judge Demo Scenario",
-            [
-                "None (Manual Input)",
-                "Demo A: Normal Parcel (Standard comparison & booking)",
-                "Demo B: Oversized Elongated Item (110cm custom box)",
-                "Demo C: Cheapest Option Rejected / Unserviceable",
-                "Demo D: Ambiguous Booking & Reconciliation",
-            ],
+            scenario_options,
+            index=def_idx,
             key="demo_scenario_choice",
         )
 
-        if st.button("🚀 Load Evaluator Scenario", use_container_width=True):
-            if "Demo A" in demo_choice:
-                order_demo = OrderInput(
-                    order_reference=f"DEMO-A-{uuid.uuid4().hex[:6].upper()}",
-                    sender=Address(name="Alpha Hub", phone="9876543210", street_line1="1 Main St", city="Delhi", state="Delhi", pin_code="110020"),
-                    recipient=Address(name="Vikram Patel", phone="9123456780", street_line1="402 Green Acres", city="Bengaluru", state="Karnataka", pin_code="560034"),
-                    parcel_weight_kg=1.8,
-                    dimensions=Dimensions(length_cm=25.0, width_cm=20.0, height_cm=15.0),
-                    package_type=PackageType.BOX,
-                    is_cod=True,
-                    cod_amount=1200.0,
-                )
-            elif "Demo B" in demo_choice:
-                order_demo = OrderInput(
-                    order_reference=f"DEMO-B-{uuid.uuid4().hex[:6].upper()}",
-                    sender=Address(name="Precision Engineering", phone="9876543210", street_line1="12 Industrial Area", city="Pune", state="Maharashtra", pin_code="411001"),
-                    recipient=Address(name="Design Studio", phone="9123456780", street_line1="5 High Tech Rd", city="Mumbai", state="Maharashtra", pin_code="400001"),
-                    parcel_weight_kg=3.2,
-                    dimensions=Dimensions(length_cm=110.0, width_cm=20.0, height_cm=15.0),
-                    package_type=PackageType.BOX,
-                    is_cod=False,
-                )
-            elif "Demo C" in demo_choice:
-                order_demo = OrderInput(
-                    order_reference=f"DEMO-C-{uuid.uuid4().hex[:6].upper()}",
-                    sender=Address(name="North Central Depot", phone="9876543210", street_line1="8 Station Rd", city="Delhi", state="Delhi", pin_code="110020"),
-                    recipient=Address(name="Remote Border Outpost", phone="9123456780", street_line1="Sector 4", city="Itanagar", state="Arunachal Pradesh", pin_code="791111"),
-                    parcel_weight_kg=2.0,
-                    dimensions=Dimensions(length_cm=30.0, width_cm=20.0, height_cm=10.0),
-                    package_type=PackageType.BOX,
-                    is_cod=False,
-                )
-            elif "Demo D" in demo_choice:
-                order_demo = OrderInput(
-                    order_reference=f"DEMO-D-{uuid.uuid4().hex[:6].upper()}",
-                    sender=Address(name="Metro Logistics", phone="9876543210", street_line1="Plot 99 Okhla", city="Delhi", state="Delhi", pin_code="110020"),
-                    recipient=Address(name="Kavita Rao", phone="9123456780", street_line1="MG Road 14", city="Bengaluru", state="Karnataka", pin_code="560001"),
-                    parcel_weight_kg=1.5,
-                    dimensions=Dimensions(length_cm=20.0, width_cm=15.0, height_cm=10.0),
-                    package_type=PackageType.BOX,
-                    is_cod=False,
-                )
+        sc_id = _map_demo_choice_to_id(demo_choice)
+        if sc_id and sc_id in SCENARIO_METADATA:
+            meta = SCENARIO_METADATA[sc_id]
+            st.markdown(f"**{meta['full_title']}**")
+            st.caption(meta["description"])
+            st.markdown(f"**Expected:** {meta['expected']}")
+
+            # Check status of this scenario
+            sc_results = st.session_state.get("scenario_test_results", {})
+            test_res = sc_results.get(sc_id)
+            if test_res:
+                if test_res.status == ScenarioStatus.PASSED:
+                    st.success(f"✅ **Status: {test_res.status.value}**")
+                elif test_res.status == ScenarioStatus.FAILED:
+                    st.error(f"❌ **Status: {test_res.status.value}**")
+                elif test_res.status == ScenarioStatus.ERROR:
+                    st.error(f"⚠️ **Status: {test_res.status.value}**")
+                else:
+                    st.info(f"⚪ **Status: {test_res.status.value}**")
+
+                st.caption(f"**Actual:** {test_res.actual_outcome}")
+                with st.expander("🔍 Inspect Test Evidence & Subcases", expanded=False):
+                    if test_res.subcases:
+                        for sc in test_res.subcases:
+                            icon = "✅" if sc.passed else "❌"
+                            st.markdown(f"**{icon} {sc.subcase_id} — {sc.title}**")
+                            st.caption(f"Actual: {sc.actual}")
+                    st.caption(f"⏱️ Executed in {test_res.execution_time_ms} ms at {test_res.timestamp[:19]}Z")
             else:
-                order_demo = None
+                st.info("⚪ **Status: NOT RUN**")
 
-            if order_demo:
-                provider = DemoShippingAdapter(couriers=ALL_DEMO_COURIERS)
-                quotes_demo = provider.get_rates(order_demo)
-                engine = AgentDecisionEngine()
-                trace_demo = engine.run_observe(order_demo)
-                db_svc = get_db()
-                custom_pkgs_saved = [
-                    CustomPackaging(
-                        packaging_id=r["packaging_id"],
-                        name=r["name"],
-                        package_type=PackageType(r["package_type"]),
-                        outer_dimensions=Dimensions(length_cm=r["outer_length_cm"], width_cm=r["outer_width_cm"], height_cm=r["outer_height_cm"]),
-                        wall_thickness_cm=r["wall_thickness_cm"],
-                        padding_cm=r["padding_cm"],
-                        tare_weight_kg=r["tare_weight_kg"],
-                    )
-                    for r in db_svc.get_custom_packagings()
-                ]
-                engine.run_evaluate(order_demo, quotes_demo, trace_demo, custom_packages=custom_pkgs_saved, couriers=ALL_DEMO_COURIERS)
-                rank_demo = engine.run_decide(quotes_demo, RankingPreferences(mode=RankingMode.LOWEST_COST), trace_demo)
+            btn_col1, btn_col2, btn_col3 = st.columns(3)
+            with btn_col1:
+                if st.button("🚀 Load", use_container_width=True, help="Load this scenario inputs into the application form", key=f"btn_load_{sc_id.lower()}"):
+                    order_demo = meta["builder"]()
+                    provider = DemoShippingAdapter(couriers=ALL_DEMO_COURIERS)
+                    quotes_demo = provider.get_rates(order_demo)
+                    engine = AgentDecisionEngine()
+                    trace_demo = engine.run_observe(order_demo)
+                    db_svc = get_db()
+                    custom_pkgs_saved = [
+                        CustomPackaging(
+                            packaging_id=r["packaging_id"],
+                            name=r["name"],
+                            package_type=PackageType(r["package_type"]),
+                            outer_dimensions=Dimensions(length_cm=r["outer_length_cm"], width_cm=r["outer_width_cm"], height_cm=r["outer_height_cm"]),
+                            wall_thickness_cm=r["wall_thickness_cm"],
+                            padding_cm=r["padding_cm"],
+                            tare_weight_kg=r["tare_weight_kg"],
+                        )
+                        for r in db_svc.get_custom_packagings()
+                    ]
+                    engine.run_evaluate(order_demo, quotes_demo, trace_demo, custom_packages=custom_pkgs_saved, couriers=ALL_DEMO_COURIERS)
+                    rank_demo = engine.run_decide(quotes_demo, RankingPreferences(mode=RankingMode.LOWEST_COST), trace_demo)
 
-                st.session_state.update({
-                    "order": order_demo,
-                    "quotes": quotes_demo,
-                    "ranking_result": rank_demo,
-                    "selected_quote": rank_demo.selected_winner.quote if rank_demo.selected_winner else None,
-                    "decision_trace": trace_demo,
-                    "active_demo_scenario": demo_choice,
-                    "dispatch_result": None,
-                    "recon_result": None,
-                    "approval_given": False,
-                    "has_provided_dimensions": True,
-                    "excluded_courier_codes": [],
-                    "_pickup_pin": order_demo.sender.pin_code,
-                    "_delivery_pin": order_demo.recipient.pin_code,
-                    "_parcel_length_cm": order_demo.dimensions.length_cm,
-                    "_parcel_width_cm": order_demo.dimensions.width_cm,
-                    "_parcel_height_cm": order_demo.dimensions.height_cm,
-                    "_parcel_weight_kg": order_demo.parcel_weight_kg,
-                    "form_dim_len": order_demo.dimensions.length_cm,
-                    "form_dim_wid": order_demo.dimensions.width_cm,
-                    "form_dim_hgt": order_demo.dimensions.height_cm,
-                    "form_dim_weight": order_demo.parcel_weight_kg,
-                    "dim_mode_choice": "Direct Packed Parcel Outer Dimensions",
-                    "_last_seen_measurements": (
-                        order_demo.dimensions.length_cm,
-                        order_demo.dimensions.width_cm,
-                        order_demo.dimensions.height_cm,
-                        order_demo.parcel_weight_kg,
-                    ),
-                })
-                st.rerun()
+                    st.session_state.update({
+                        "order": order_demo,
+                        "quotes": quotes_demo,
+                        "ranking_result": rank_demo,
+                        "selected_quote": rank_demo.selected_winner.quote if rank_demo.selected_winner else None,
+                        "decision_trace": trace_demo,
+                        "active_demo_scenario": demo_choice,
+                        "dispatch_result": None,
+                        "recon_result": None,
+                        "approval_given": False,
+                        "approved_record": None,
+                        "approved_proposal_sig": None,
+                        "has_provided_dimensions": True,
+                        "excluded_courier_codes": [],
+                        "_pickup_pin": order_demo.sender.pin_code,
+                        "_delivery_pin": order_demo.recipient.pin_code,
+                        "_parcel_length_cm": order_demo.dimensions.length_cm,
+                        "_parcel_width_cm": order_demo.dimensions.width_cm,
+                        "_parcel_height_cm": order_demo.dimensions.height_cm,
+                        "_parcel_weight_kg": order_demo.parcel_weight_kg,
+                        "form_dim_len": order_demo.dimensions.length_cm,
+                        "form_dim_wid": order_demo.dimensions.width_cm,
+                        "form_dim_hgt": order_demo.dimensions.height_cm,
+                        "form_dim_weight": order_demo.parcel_weight_kg,
+                        "dim_mode_choice": "Direct Packed Parcel Outer Dimensions",
+                        "form_pay_mode": "Cash on Delivery (COD)" if order_demo.is_cod else "Prepaid",
+                        "_cod_amount": order_demo.cod_amount if order_demo.is_cod else 1200.0,
+                        "form_cod_amount": order_demo.cod_amount if order_demo.is_cod else 1200.0,
+                        "_last_seen_measurements": (
+                            order_demo.dimensions.length_cm,
+                            order_demo.dimensions.width_cm,
+                            order_demo.dimensions.height_cm,
+                            order_demo.parcel_weight_kg,
+                        ),
+                    })
+                    st.rerun()
+
+            with btn_col2:
+                if st.button("🧪 Run", use_container_width=True, type="primary", help="Execute the deterministic test", key=f"btn_run_{sc_id.lower()}"):
+                    suite = EvaluatorSuite(get_db())
+                    res = suite.run_scenario(sc_id)
+                    if "scenario_test_results" not in st.session_state:
+                        st.session_state["scenario_test_results"] = {}
+                    st.session_state["scenario_test_results"][sc_id] = res
+                    st.rerun()
+
+            with btn_col3:
+                if st.button("🔄 Reset", use_container_width=True, help="Reset evaluator state for this scenario", key=f"btn_reset_{sc_id.lower()}"):
+                    if "scenario_test_results" in st.session_state and sc_id in st.session_state["scenario_test_results"]:
+                        del st.session_state["scenario_test_results"][sc_id]
+                    st.session_state["active_demo_scenario"] = "None (Manual Input)"
+                    st.rerun()
+        else:
+            st.info("✍️ Manual Input Mode: Fill in parcel details and find couriers below.")
 
         st.divider()
         if st.button("🔄 Reset Application", use_container_width=True):
@@ -1557,6 +1603,186 @@ def render_history():
             st.info("No audit events recorded yet.")
 
 
+# ── Official Test Cases Dashboard ─────────────────────────────────────────────
+def render_official_test_cases_dashboard():
+    """
+    Visible Official Test Cases Dashboard displaying TC1 – TC4.
+    Supports single test execution, batch execution, result resets,
+    compact cards, metrics, and evidence inspection.
+    """
+    st.subheader("🧪 Official Hackathon Test Cases Dashboard (TC1 – TC4)")
+    st.markdown(
+        "*Dedicated verification dashboard for official Hackathon evaluation criteria. "
+        "Each test executes real domain logic against deterministic mock courier configurations.*"
+    )
+    st.warning(
+        "🔵 **DEMO DATA NOTICE:** All carrier rates, tracking numbers, and dispatches are synthetic "
+        "demonstration outputs produced by the Demo Shipping Adapter.",
+        icon="ℹ️",
+    )
+
+    db = get_db()
+    runner = OfficialScenariosRunner(db)
+
+    # Action bar
+    act_col1, act_col2 = st.columns([2, 1])
+    with act_col1:
+        if st.button("▶️ Run All Official Tests (TC1 – TC4)", type="primary", use_container_width=True, key="btn_run_all_tc"):
+            all_res = runner.run_all()
+            if "official_test_results" not in st.session_state:
+                st.session_state["official_test_results"] = {}
+            for r in all_res:
+                st.session_state["official_test_results"][r.test_case_id] = {
+                    "test_case_id": r.test_case_id,
+                    "title": r.test_case_name,
+                    "status": r.status,
+                    "expected": r.expected_result,
+                    "actual": r.actual_result,
+                    "explanation": r.explanation,
+                    "input_record": r.input_record,
+                    "evidence": r.evidence_references,
+                    "timestamp": r.timestamp,
+                }
+            st.rerun()
+
+    with act_col2:
+        if st.button("🔄 Reset Official Test Results", use_container_width=True, key="btn_reset_all_tc"):
+            st.session_state["official_test_results"] = {}
+            try:
+                db.clear_official_test_runs()
+            except Exception:
+                pass
+            st.rerun()
+
+    # Metrics calculation
+    tc_keys = ["TC1", "TC2", "TC3", "TC4"]
+    ot_results = st.session_state.get("official_test_results", {})
+    if not ot_results:
+        try:
+            db_runs = db.get_official_test_runs()
+            for run in db_runs:
+                tid = run["test_case_id"]
+                if tid in tc_keys and tid not in ot_results:
+                    ot_results[tid] = {
+                        "test_case_id": tid,
+                        "title": run["test_case_name"],
+                        "status": run["status"],
+                        "expected": run["expected_result"],
+                        "actual": run["actual_result"],
+                        "explanation": run["explanation"],
+                        "input_record": json.loads(run["input_record_json"]) if isinstance(run["input_record_json"], str) else run["input_record_json"],
+                        "evidence": json.loads(run["evidence_json"]) if isinstance(run["evidence_json"], str) else run["evidence_json"],
+                        "timestamp": run["timestamp"],
+                    }
+            st.session_state["official_test_results"] = ot_results
+        except Exception:
+            pass
+
+    passed_cnt = sum(1 for k in tc_keys if ot_results.get(k, {}).get("status") == "PASSED")
+    failed_cnt = sum(1 for k in tc_keys if ot_results.get(k, {}).get("status") == "FAILED")
+    error_cnt = sum(1 for k in tc_keys if ot_results.get(k, {}).get("status") == "ERROR")
+    not_run_cnt = 4 - (passed_cnt + failed_cnt + error_cnt)
+
+    st.markdown("---")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Passed", f"{passed_cnt} / 4")
+    m2.metric("Failed", str(failed_cnt))
+    m3.metric("Errors", str(error_cnt))
+    m4.metric("Not Run", str(not_run_cnt))
+
+    if passed_cnt == 4:
+        st.success("🎉 **All 4 Official Test Cases Passed Successfully!** All evaluation criteria satisfied.")
+    elif failed_cnt > 0 or error_cnt > 0:
+        st.error(f"⚠️ **{failed_cnt} Test Case(s) Failed, {error_cnt} Error(s).** Review failure explanations below.")
+    elif not_run_cnt == 4:
+        st.info("ℹ️ Official test cases are currently NOT RUN. Click **'Run All Official Tests'** or run individual tests below.")
+
+    st.markdown("---")
+
+    tc_specs = [
+        {
+            "id": "TC1",
+            "title": "TC1: Same Parcel on Three Couriers",
+            "subtitle": "Evaluates the same shipment across 3 couriers; ranks by lowest applicable cost with transparent breakdowns.",
+            "expected": "All 3 couriers compared, fee breakdowns transparently calculated, ranked by lowest cost.",
+        },
+        {
+            "id": "TC2",
+            "title": "TC2: Large, Light Box (Volumetric Penalty)",
+            "subtitle": "60x50x40 cm (120,000 cm³) with 0.5 kg actual weight. Volumetric divisors (5000, 4500, 4000) applied.",
+            "expected": "Volumetric weight exceeds dead weight; each courier applies its distinct divisor (5000, 4500, 4000).",
+        },
+        {
+            "id": "TC3",
+            "title": "TC3: Destination PIN Not Serviceable",
+            "subtitle": "Remote destination PIN 791111 (Arunachal Pradesh). Excludes unserviceable Air Express; cost is never zero.",
+            "expected": "Air Express excluded with explicit reason; unserviceable cost is None (not zero); ranking selects only eligible couriers.",
+        },
+        {
+            "id": "TC4",
+            "title": "TC4: Label Created, AWB Matched & Pickup Verified",
+            "subtitle": "Approved shipment dispatched, compliant shipping label generated, AWB verified, 5/5 checkpoints passed.",
+            "expected": "Shipment created, AWB returned, label corresponds to AWB/order, pickup schedule confirmed, 5-point verification passes.",
+        },
+    ]
+
+    # Render in 2x2 grid
+    row1_c1, row1_c2 = st.columns(2)
+    row2_c1, row2_c2 = st.columns(2)
+    grid_cols = [row1_c1, row1_c2, row2_c1, row2_c2]
+
+    for i, spec in enumerate(tc_specs):
+        with grid_cols[i]:
+            with st.container(border=True):
+                st.markdown(f"#### 🏷️ {spec['title']}")
+                st.caption(spec["subtitle"])
+                st.markdown(f"**Expected Outcome:** {spec['expected']}")
+
+                # Status badge
+                tc_data = ot_results.get(spec["id"])
+                if tc_data:
+                    st_val = tc_data.get("status", "NOT RUN")
+                    if st_val == "PASSED":
+                        st.success(f"✅ **Status: {st_val}**")
+                    elif st_val == "FAILED":
+                        st.error(f"❌ **Status: {st_val}**")
+                    elif st_val == "ERROR":
+                        st.error(f"⚠️ **Status: {st_val}**")
+                    else:
+                        st.info(f"⚪ **Status: {st_val}**")
+
+                    st.markdown(f"**Actual Result:** {tc_data.get('actual', 'None')}")
+                    if st_val in ("FAILED", "ERROR") and tc_data.get("explanation"):
+                        st.warning(f"**Failure Details:** {tc_data.get('explanation')}")
+
+                    with st.expander("🔍 Inspect Inputs & Evidence (JSON)", expanded=False):
+                        st.caption(f"⏱️ Executed at {tc_data.get('timestamp', '')[:19]}Z")
+                        st.markdown("**Input Record Snapshot:**")
+                        st.json(tc_data.get("input_record", {}))
+                        st.markdown("**Evidence References:**")
+                        st.json(tc_data.get("evidence", {}))
+                else:
+                    st.info("⚪ **Status: NOT RUN**")
+                    st.caption("Click 'Run Test' below to execute this scenario.")
+
+                if st.button(f"▶️ Run {spec['id']} Test", key=f"btn_run_{spec['id'].lower()}", use_container_width=True):
+                    res = runner.run_single(spec["id"])
+                    if "official_test_results" not in st.session_state:
+                        st.session_state["official_test_results"] = {}
+                    st.session_state["official_test_results"][spec["id"]] = {
+                        "test_case_id": res.test_case_id,
+                        "title": res.test_case_name,
+                        "status": res.status,
+                        "expected": res.expected_result,
+                        "actual": res.actual_result,
+                        "explanation": res.explanation,
+                        "input_record": res.input_record,
+                        "evidence": res.evidence_references,
+                        "timestamp": res.timestamp,
+                    }
+                    st.rerun()
+
+
 # ── Main Application ──────────────────────────────────────────────────────────
 def main():
     render_sidebar()
@@ -1568,14 +1794,17 @@ def main():
         "are produced by the Demo Shipping Adapter and are NOT live carrier prices or confirmed bookings."
     )
 
-    tab_ship, tab_history, tab_advanced = st.tabs([
+    tab_ship, tab_official, tab_history, tab_advanced = st.tabs([
         "📦 Ship a Parcel",
+        "🧪 Official Test Cases",
         "📋 My Shipments",
         "🛠️ Advanced Tools",
     ])
 
     with tab_ship:
         render_shipping_workflow()
+    with tab_official:
+        render_official_test_cases_dashboard()
     with tab_history:
         render_history()
     with tab_advanced:

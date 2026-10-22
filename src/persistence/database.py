@@ -287,6 +287,10 @@ class DatabaseManager:
                 rows = conn.execute(sql).fetchall()
             return [dict(r) for r in rows]
 
+    def clear_official_test_runs(self) -> None:
+        with self.connection() as conn:
+            conn.execute('DELETE FROM official_test_runs')
+
     def insert_custom_packaging(self, pkg_data: dict[str, Any]) -> str:
         """
         Insert custom packaging with deduplication.
