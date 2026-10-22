@@ -68,15 +68,24 @@ class Address(BaseModel):
     street_line2: Optional[str] = Field(default=None, max_length=150, description="Street address line 2")
     city: str = Field(..., min_length=2, max_length=50, description="City name")
     state: str = Field(..., min_length=2, max_length=50, description="State or province")
-    pin_code: str = Field(..., description="6-digit postal PIN code")
     country: str = Field(default="India", max_length=50, description="Country name")
+    pin_code: str = Field(..., description="Postal PIN or ZIP code")
 
     @field_validator("pin_code")
     @classmethod
-    def validate_pin_code(cls, v: str) -> str:
+    def validate_pin_code(cls, v: str, info) -> str:
         cleaned = v.strip()
-        if not re.fullmatch(r"^\d{6}$", cleaned):
-            raise ValueError(f"PIN code must be exactly 6 digits, got '{cleaned}'")
+        country = (info.data.get("country") if hasattr(info, "data") else "India") or "India"
+        c = str(country).strip().upper()
+        if c in ("INDIA", "IN"):
+            if not re.fullmatch(r"^\d{6}$", cleaned):
+                raise ValueError(f"PIN code must be exactly 6 digits, got '{cleaned}'")
+        elif c in ("US", "USA", "UNITED STATES"):
+            if not re.fullmatch(r"^\d{5}$", cleaned):
+                raise ValueError(f"US ZIP code must be 5 digits (e.g. 78756), got '{cleaned}'")
+        else:
+            if not re.fullmatch(r"^[A-Za-z0-9\s\-]{3,10}$", cleaned):
+                raise ValueError(f"Postal code must be valid, got '{cleaned}'")
         return cleaned
 
     @field_validator("phone")

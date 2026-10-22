@@ -169,6 +169,8 @@ def _init_session():
         "dim_mode_choice": "Direct Packed Parcel Outer Dimensions",
         "scenario_test_results": {},
         "official_test_results": {},
+        "active_provider_mode": "demo",
+        "shipengine_connection_status": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -193,13 +195,77 @@ def render_sidebar():
 4. 📄 **Get PDF Label** — Print-ready label with barcode & QR
 """)
         st.divider()
-        st.warning(
-            "**DEMO DATA MODE**\n\nAll courier rates shown are "
-            "synthetic and produced by the Demo Shipping Adapter. "
-            "They are NOT live carrier prices.",
-            icon="🔵",
+
+        # ── Shipping Provider Mode Selector ──
+        st.markdown("**🔌 Shipping Provider**")
+        provider_mode_options = ["Demo Simulator", "ShipEngine Sandbox API"]
+        curr_provider_mode = st.session_state.get("active_provider_mode", "demo")
+        sel_idx = 1 if curr_provider_mode in ("shipengine", "shipengine_sandbox") else 0
+        provider_choice = st.radio(
+            "Select Provider",
+            provider_mode_options,
+            index=sel_idx,
+            key="provider_mode_radio",
+            label_visibility="collapsed",
         )
-        st.caption("Provider: Demo Multi-Courier Adapter (Simulated)")
+        active_mode = "shipengine" if "ShipEngine" in provider_choice else "demo"
+        if active_mode != st.session_state.get("active_provider_mode"):
+            st.session_state["active_provider_mode"] = active_mode
+            st.session_state["quotes"] = None
+            st.session_state["ranking_result"] = None
+            st.session_state["selected_quote"] = None
+            st.session_state["approval_given"] = False
+            st.session_state["approved_record"] = None
+            st.session_state["approved_proposal_sig"] = None
+            st.session_state["dispatch_result"] = None
+            st.rerun()
+
+        if active_mode == "demo":
+            st.warning(
+                "**DEMO DATA MODE**\n\nAll courier rates shown are "
+                "synthetic and produced by the Demo Shipping Adapter. "
+                "They are NOT live carrier prices.",
+                icon="🔵",
+            )
+            st.caption("Provider: Demo Multi-Courier Adapter (Simulated)")
+        else:
+            from src.providers.shipengine_adapter import (
+                get_shipengine_api_key,
+                mask_api_key,
+                validate_sandbox_key,
+                ShipEngineAdapter,
+            )
+            raw_key = get_shipengine_api_key()
+            is_valid_key, key_msg = validate_sandbox_key(raw_key)
+
+            st.info(
+                "**SHIPENGINE SANDBOX**\n\nCommunicating with official "
+                "ShipEngine Sandbox REST API (`https://api.shipengine.com`).",
+                icon="🟢",
+            )
+            st.caption(f"Configured Key: `{mask_api_key(raw_key)}`")
+
+            if st.button("🧪 Test Connection", key="btn_test_shipengine", use_container_width=True):
+                with st.spinner("Pinging ShipEngine Sandbox API (/v1/carriers)..."):
+                    se_adapter = ShipEngineAdapter(api_key=raw_key)
+                    res = se_adapter.test_connection()
+                    st.session_state["shipengine_connection_status"] = res
+
+            conn_res = st.session_state.get("shipengine_connection_status")
+            if conn_res:
+                if conn_res.get("connected"):
+                    st.success(f"✅ Connected (HTTP {conn_res.get('status_code', 200)})")
+                    carrier_list = [
+                        c.get("friendly_name") or c.get("nickname") or c.get("carrier_code")
+                        for c in conn_res.get("carriers", [])
+                    ]
+                    if carrier_list:
+                        st.caption(f"Carriers: {', '.join(carrier_list)}")
+                else:
+                    st.error(f"❌ {conn_res.get('message')}")
+            elif not is_valid_key:
+                st.caption(f"⚠️ {key_msg}")
+
         st.divider()
         st.markdown("**🎯 Evaluator 1-Click Scenarios**")
         scenario_options = [
@@ -306,6 +372,7 @@ def render_sidebar():
                         "selected_quote": rank_demo.selected_winner.quote if rank_demo.selected_winner else None,
                         "decision_trace": trace_demo,
                         "active_demo_scenario": demo_choice,
+                        "active_provider_mode": "demo",
                         "dispatch_result": None,
                         "recon_result": None,
                         "approval_given": False,
@@ -711,11 +778,15 @@ def _render_ship_a_parcel_form():
             st.session_state["approval_given"] = False
             return
 
-        provider = get_provider("demo")
+        provider_mode = st.session_state.get("active_provider_mode", "demo")
+        provider = get_provider(provider_mode)
         svc_ok, svc_msg, is_demo = provider.check_route_serviceability(pickup_pin, delivery_pin)
         if not svc_ok:
             st.error(f"❌ {svc_msg}")
-            st.caption("ℹ️ Demo Network Data: Route serviceability verified against Demo Shipping Adapter simulated network data (Non-official carrier verification).")
+            if provider_mode == "demo":
+                st.caption("ℹ️ Demo Network Data: Route serviceability verified against Demo Shipping Adapter simulated network data (Non-official carrier verification).")
+            else:
+                st.caption(f"ℹ️ {provider.provider_name}: Route serviceability check failed.")
             st.session_state["quotes"] = None
             st.session_state["selected_quote"] = None
             st.session_state["approval_given"] = False
@@ -766,14 +837,27 @@ def _render_ship_a_parcel_form():
         st.session_state["verification_report"] = None
         st.session_state["pickup_result"] = None
 
-        with st.spinner("Finding eligible couriers and calculating rates…"):
-            provider = get_provider("demo")
-            quotes = provider.get_rates(order)
+        with st.spinner(f"Finding eligible couriers and calculating rates via {provider.provider_name}…"):
+            try:
+                quotes = provider.get_rates(order)
+            except Exception as e:
+                st.error(f"❌ Rate fetch error from {provider.provider_name}: {e}")
+                st.session_state["quotes"] = None
+                st.session_state["selected_quote"] = None
+                st.session_state["approval_given"] = False
+                return
+
             eligible = [q for q in quotes if q.is_eligible and q.cost_breakdown]
             if not eligible:
-                st.error("❌ Delivery to this PIN code is currently unavailable. Please check the PIN code or try another supported destination.")
-                st.caption("ℹ️ Demo Network Data: No couriers in the simulated network can service this parcel to destination PIN.")
-                st.session_state["quotes"] = None
+                if provider_mode == "demo":
+                    st.error("❌ Delivery to this PIN code is currently unavailable. Please check the PIN code or try another supported destination.")
+                    st.caption("ℹ️ Demo Network Data: No couriers in the simulated network can service this parcel to destination PIN.")
+                else:
+                    unsvc_reasons = [q.unserviceable_reason for q in quotes if q.unserviceable_reason]
+                    reason_msg = unsvc_reasons[0] if unsvc_reasons else "ShipEngine Sandbox returned no eligible rates for this route and weight."
+                    st.error(f"❌ {reason_msg}")
+                    st.caption("ℹ️ ShipEngine Sandbox API: Zero eligible rates returned by connected carriers. No simulated fallback applied.")
+                st.session_state["quotes"] = quotes
                 st.session_state["selected_quote"] = None
                 st.session_state["approval_given"] = False
                 return
@@ -822,8 +906,8 @@ def _render_ship_a_parcel_form():
                 db.insert_quotes(quotes_data)
                 audit.record_event(
                     AuditEventType.QUOTES_RECEIVED,
-                    "DemoAdapter",
-                    {"quote_count": len(quotes), "order_reference": order.order_reference},
+                    provider.provider_code,
+                    {"quote_count": len(quotes), "order_reference": order.order_reference, "provider": provider.provider_name},
                     order_reference=order.order_reference,
                 )
             except Exception:
@@ -856,8 +940,11 @@ def _render_ship_a_parcel_form():
             engine.run_decide(quotes, prefs, trace)
             st.session_state["decision_trace"] = trace
 
-        st.success(f"✅ Found eligible courier options for **PIN {pickup_pin} ➔ PIN {delivery_pin}**.")
-        st.caption("ℹ️ Route serviceability verified against Demo Shipping Adapter simulated network data (Simulated Demo Data — not official carrier confirmation).")
+        st.success(f"✅ Found eligible courier options for **PIN {pickup_pin} ➔ PIN {delivery_pin}** via {provider.provider_name}.")
+        if provider_mode == "demo":
+            st.caption("ℹ️ Route serviceability verified against Demo Shipping Adapter simulated network data (Simulated Demo Data — not official carrier confirmation).")
+        else:
+            st.caption("ℹ️ Genuine rates and route confirmation retrieved directly from ShipEngine Sandbox REST API.")
         st.rerun()
 
 
@@ -1072,7 +1159,9 @@ def _render_review_and_approve_section():
             st.markdown(f"**Parcel Weight:** {order.parcel_weight_kg:.2f} kg ({order.dimensions.length_cm:.1f}×{order.dimensions.width_cm:.1f}×{order.dimensions.height_cm:.1f} cm)")
         with rc2:
             st.markdown(f"**Selected Courier:** **{selected_quote.courier_name}** ({selected_quote.service_type})")
-            st.markdown(f"**Total Shipping Cost:** **{fmt_inr(cost_val)}** *(Simulated Demo Rate)*")
+            curr_str = getattr(selected_quote.cost_breakdown, "currency", "INR") if selected_quote.cost_breakdown else "INR"
+            rate_mode_badge = "*(ShipEngine Sandbox)*" if not getattr(selected_quote, "is_demo_data", True) else "*(Simulated Demo Rate)*"
+            st.markdown(f"**Total Shipping Cost:** **{fmt_inr(cost_val, currency=curr_str)}** {rate_mode_badge}")
             if order.is_cod:
                 st.markdown(f"**Payment:** :red[**Cash on Delivery (Collect ₹ {order.cod_amount:,.2f})**]")
             else:
@@ -1098,7 +1187,8 @@ def _render_review_and_approve_section():
     # Route validation and serviceability gating before approval
     ok_p_gate, err_p_gate = validate_pin_code(order.sender.pin_code, pin_type="pickup")
     ok_d_gate, err_d_gate = validate_pin_code(order.recipient.pin_code, pin_type="delivery")
-    provider_gate = get_provider("demo")
+    provider_mode = st.session_state.get("active_provider_mode", "demo")
+    provider_gate = get_provider(provider_mode)
     svc_ok_gate, svc_msg_gate, _ = provider_gate.check_route_serviceability(order.sender.pin_code, order.recipient.pin_code)
 
     if not ok_p_gate or not ok_d_gate or not svc_ok_gate:
@@ -1112,7 +1202,7 @@ def _render_review_and_approve_section():
             return
 
         db, audit, idem, fsm, dispatch_service = get_services()
-        provider = get_provider("demo")
+        provider = get_provider(provider_mode)
 
         approval = ApprovalRecord(
             order_reference=order.order_reference,
@@ -1156,6 +1246,7 @@ def _render_review_and_approve_section():
 
             # Verification
             ver_service = ShipmentVerificationService(audit_logger=audit)
+            is_demo_flag = getattr(selected_quote, "is_demo_data", True)
             ship_res = ShipmentResult(
                 success=True,
                 shipment_id=dispatch_result.shipment_id,
@@ -1164,7 +1255,7 @@ def _render_review_and_approve_section():
                 label_url_or_data=dispatch_result.label_data or (provider.generate_label(dispatch_result.shipment_id, tracking_number=dispatch_result.tracking_number, order=order, quote=selected_quote) if hasattr(provider, "generate_label") else None),
                 order_reference=order.order_reference,
                 courier_code=selected_quote.courier_code,
-                is_demo_data=True,
+                is_demo_data=is_demo_flag,
             )
             report = ver_service.verify_shipment(order, selected_quote, approval, ship_res, provider=provider, pickup_result=pickup_res)
             st.session_state["verification_report"] = report
@@ -1191,8 +1282,10 @@ def _render_review_and_approve_section():
 def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuote, dispatch_result: Any):
     st.success("🎉 **Your shipment is ready**")
 
+    is_demo = getattr(selected_quote, "is_demo_data", True)
+    awb_label = "AWB / Tracking (DEMO)" if is_demo else "AWB / Tracking (ShipEngine Sandbox)"
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("AWB / Tracking (DEMO)", dispatch_result.tracking_number or "N/A")
+    m1.metric(awb_label, dispatch_result.tracking_number or "N/A")
     m2.metric("Shipment ID", dispatch_result.shipment_id)
     m3.metric("Courier", selected_quote.courier_name)
     m4.metric("Verification Status", "✅ VERIFIED")
@@ -1249,6 +1342,9 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
             use_container_width=True,
             key="btn_download_pdf_ready",
         )
+
+        if dispatch_result.label_data and str(dispatch_result.label_data).startswith("http"):
+            st.link_button("🌐 Open Official ShipEngine Carrier Label (PDF)", str(dispatch_result.label_data), use_container_width=True)
 
         with st.expander("👁️ View Live PDF Shipping Label Preview", expanded=True):
             try:

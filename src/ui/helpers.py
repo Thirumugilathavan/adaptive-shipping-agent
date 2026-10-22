@@ -33,16 +33,25 @@ from src.domain.ranking import RankingResult, RankedCourierQuote
 # Input Validation Helpers
 # ---------------------------------------------------------------------------
 
-def validate_pin_code(pin: str, pin_type: str = "") -> tuple[bool, str]:
+def validate_pin_code(pin: str, pin_type: str = "", country: str = "India") -> tuple[bool, str]:
     """
-    Validate Indian postal PIN code format.
-    Must be exactly 6 numeric digits starting with 1-9.
+    Validate postal PIN/ZIP code format.
+    Must be exactly 6 numeric digits for India, or 5 digits for US.
     Return (is_valid, error_message). Empty error = ok.
     """
     cleaned = pin.strip() if pin else ""
     type_str = f"{pin_type.strip()} " if pin_type else ""
+    c = (country or "India").strip().upper()
     if not cleaned:
+        if c in ("US", "USA", "UNITED STATES"):
+            return False, f"ZIP code is required. Enter a valid 5-digit {type_str}ZIP code.".replace("  ", " ")
         return False, f"PIN code is required. Enter a valid 6-digit {type_str}PIN code (must be exactly 6 digits).".replace("  ", " ")
+
+    if c in ("US", "USA", "UNITED STATES"):
+        if not re.fullmatch(r"^\d{5}$", cleaned):
+            return False, f"Enter a valid 5-digit {type_str}ZIP code (e.g. 78756).".replace("  ", " ")
+        return True, ""
+
     if not re.fullmatch(r"^[1-9]\d{5}$", cleaned):
         return False, f"Enter a valid 6-digit {type_str}PIN code (must be exactly 6 digits).".replace("  ", " ")
     return True, ""
@@ -193,7 +202,8 @@ def build_order_input_from_form(form_data: dict[str, Any]) -> tuple[Optional[Ord
         )
     except ValidationError as exc:
         for e in exc.errors():
-            errors.append(f"Sender – {e['loc'][-1]}: {e['msg']}")
+            loc_f = e['loc'][-1] if e.get('loc') else 'field'
+            errors.append(f"Sender – {loc_f}: {e['msg']}")
         sender = None  # type: ignore[assignment]
 
     try:
@@ -208,7 +218,8 @@ def build_order_input_from_form(form_data: dict[str, Any]) -> tuple[Optional[Ord
         )
     except ValidationError as exc:
         for e in exc.errors():
-            errors.append(f"Recipient – {e['loc'][-1]}: {e['msg']}")
+            loc_f = e['loc'][-1] if e.get('loc') else 'field'
+            errors.append(f"Recipient – {loc_f}: {e['msg']}")
         recipient = None  # type: ignore[assignment]
 
     # Mandatory measurement validations
@@ -274,9 +285,12 @@ def build_order_input_from_form(form_data: dict[str, Any]) -> tuple[Optional[Ord
 # Display Formatters
 # ---------------------------------------------------------------------------
 
-def fmt_inr(amount: float) -> str:
-    """Format a float as Indian Rupees with 2 decimal places."""
-    return f"INR {amount:,.2f}"
+def fmt_inr(amount: float, currency: str = "INR") -> str:
+    """Format a float with currency code/symbol."""
+    c = (currency or "INR").upper()
+    if c == "USD":
+        return f"${amount:,.2f} USD"
+    return f"{c} {amount:,.2f}"
 
 
 def fmt_kg(kg: float) -> str:
@@ -313,7 +327,9 @@ def freshness_badge(quote: CourierQuote, max_age_seconds: int = 900) -> tuple[st
 
 
 def quote_source_badge(quote: CourierQuote) -> str:
-    """Return a prominent DEMO DATA or LIVE label string."""
+    """Return a prominent DEMO DATA, SANDBOX, or LIVE label string."""
+    if quote.source_type == "SHIPENGINE_SANDBOX":
+        return "🟢 SHIPENGINE SANDBOX — Real API rate from ShipEngine Sandbox"
     if quote.is_demo_data:
         return "🔵 DEMO DATA — Simulated rate, not a live carrier price"
     return "🟢 LIVE QUOTE"
@@ -321,14 +337,15 @@ def quote_source_badge(quote: CourierQuote) -> str:
 
 def format_cost_breakdown(cb: CostBreakdown) -> dict[str, str]:
     """Return a display-ready ordered dict of cost line items."""
+    curr = getattr(cb, "currency", "INR")
     return {
-        "Base Freight": fmt_inr(cb.base_freight),
-        f"Fuel Surcharge ({cb.fuel_surcharge_rate_pct}%)": fmt_inr(cb.fuel_surcharge),
-        "COD Fee": fmt_inr(cb.cod_fee),
-        "Handling Fee": fmt_inr(cb.handling_fee),
-        "Subtotal (before tax)": fmt_inr(cb.subtotal_before_tax),
-        f"GST ({cb.tax_rate_pct}%)": fmt_inr(cb.tax_amount),
-        "**Total Landed Cost**": f"**{fmt_inr(cb.total_cost)}**",
+        "Base Freight": fmt_inr(cb.base_freight, currency=curr),
+        f"Fuel Surcharge ({cb.fuel_surcharge_rate_pct}%)": fmt_inr(cb.fuel_surcharge, currency=curr),
+        "COD Fee": fmt_inr(cb.cod_fee, currency=curr),
+        "Handling Fee": fmt_inr(cb.handling_fee, currency=curr),
+        "Subtotal (before tax)": fmt_inr(cb.subtotal_before_tax, currency=curr),
+        f"GST ({cb.tax_rate_pct}%)": fmt_inr(cb.tax_amount, currency=curr),
+        "**Total Landed Cost**": f"**{fmt_inr(cb.total_cost, currency=curr)}**",
     }
 
 

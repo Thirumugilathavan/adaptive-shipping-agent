@@ -10,11 +10,14 @@ from typing import Dict, Optional, Type
 from src.providers.base import CourierProvider
 from src.providers.demo_adapter import DemoShippingAdapter
 from src.providers.shipsandbox_client import ShipSandboxClient
+from src.providers.shipengine_adapter import ShipEngineAdapter
 
 
 PROVIDER_REGISTRY: dict[str, Type[CourierProvider]] = {
     "demo": DemoShippingAdapter,
     "shipsandbox": ShipSandboxClient,
+    "shipengine": ShipEngineAdapter,
+    "shipengine_sandbox": ShipEngineAdapter,
 }
 
 

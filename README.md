@@ -2,7 +2,7 @@
 > **Autonomous, Constraint-Aware Logistics Decision Support & Execution Gate Engine**  
 > *Category:* Business & Productivity AI — ZiroDigital Agentic AI Hackathon 2026  
 > *Live Entrypoint:* `python -m streamlit run src/ui/app.py`  
-> *Test Suite:* `python -m pytest tests/` (192/192 Passing) | `python run_official_scenarios.py` (4/4 Passing)
+> *Test Suite:* `python -m pytest tests/` (250/250 Passing) | `python run_official_scenarios.py` (4/4 Passing)
 
 ---
 
@@ -16,16 +16,17 @@ E-commerce merchants and warehouse logistics managers face substantial margin le
 
 The **Adaptive Shipping Intelligence Agent** solves these challenges by combining:
 - **Autonomous 6-Orientation Packaging Optimization:** Evaluates 3D rotational fits against standard and user-defined custom boxes, calculating exact volumetric savings.
+- **Dual-Provider Architecture:** Pluggable switching between **Demo Multi-Courier Simulator** and **Genuine ShipEngine Sandbox API**.
 - **Explainable Multi-Stage Decision Engine:** Chronologically documents Observation, Constraint Evaluation, Deterministic Ranking, Human Gate Approval, Safe Execution, and Independent 5-Point Verification.
 - **Zero-Drift Safety & Reconciliation:** Enforces idempotency locks, validates timestamp currency (<15m), and blocks blind retries on uncertain dispatch timeouts.
 
 ```mermaid
 flowchart LR
-    A["Stage A: Observe<br/>(Order Intake & Validation)"] --> B["Stage B: Evaluate<br/>(6-Orientation Fit & Courier Limits)"]
-    B --> C["Stage C: Decide<br/>(Deterministic Ranking & Transparency)"]
+    A["Stage A: Observe<br/>(Intake & PIN Validation)"] --> B["Stage B: Evaluate<br/>(6-Orientation Fit & Limits)"]
+    B --> C["Stage C: Decide<br/>(Deterministic Ranking & Margins)"]
     C --> D["Stage D: Gate<br/>(Human Approval Mandatory Lock)"]
-    D --> E["Stage E: Execute<br/>(Idempotency Key & Safe Timeout Capture)"]
-    E --> F["Stage F: Verify<br/>(Independent 5-Point Audit & Reconciliation)"]
+    D --> E["Stage E: Execute<br/>(Provider Dispatch & Idempotency)"]
+    E --> F["Stage F: Verify<br/>(5-Point Audit & PDF Label)"]
 ```
 
 ---
@@ -45,41 +46,32 @@ To validate the agentic capability against conventional shipping calculators (wh
 
 ---
 
-## 3. The 6-Stage Explainable Agent Lifecycle
+## 3. Shipping Provider Modes: Demo vs. ShipEngine Sandbox
 
-Every shipment processed by the agent traverses an explicit, immutable decision trace:
+The application features a provider toggle in the sidebar:
 
+### Mode 1: Demo Simulator (Default)
+- **Zero API credentials required:** 10 simulated couriers covering Air, Surface, Cargo, and Hyperlocal express delivery.
+- **Realistic fee breakdowns:** Base freight slabs, fuel surcharges, COD handling fees, and GST tax calculations.
+- **Evaluator Scenarios:** 10 one-click benchmark scenarios (`Demo A` through `Demo J`) and 4 official test cases (`TC1` through `TC4`).
+
+### Mode 2: ShipEngine Sandbox API
+- **Official REST Endpoints:** Direct communication with `https://api.shipengine.com/v1` for real live sandbox carrier rates (`POST /v1/rates`), test shipping labels (`POST /v1/labels/rates/{rate_id}`), and tracking queries (`GET /v1/tracking`).
+- **Strict Sandbox Credential Enforcement:** Only API keys prefixed with `TEST_` are accepted. Production/live credentials (`LIVE_`, `PROD_`, `sk_live_`) are immediately refused to prevent accidental charges.
+- **Secret Redaction:** API keys are never printed in logs, displayed in full in the UI, or written to SQLite tracebacks. Masked preview format: `TEST_••••••••xxxx`.
+- **Zero Silent Fallbacks:** If ShipEngine returns no rates or carrier errors for an unsupported route, the genuine carrier response is displayed directly without fabricating fake rates.
+
+#### Configuring ShipEngine Sandbox Credentials
+Set your ShipEngine test key via environment variable:
+```powershell
+$env:SHIPENGINE_API_KEY = "TEST_your_sandbox_api_key_here"
 ```
-[Stage A: Observe]
-  ├── Verify 6-digit origin & destination PINs
-  ├── Audit parcel dead weight and cubic volume
-  └── Check payment method (Prepaid vs COD collection)
-
-[Stage B: Evaluate Alternatives]
-  ├── Test 6 orthogonal 3D rotations against catalogue & custom packaging
-  ├── Screen couriers for max weight, length, and girth limits
-  └── Audit quote freshness timestamps (< 900s window)
-
-[Stage C: Decide & Recommend]
-  ├── Deterministically rank eligible couriers (Lowest Cost, Fastest, Balanced)
-  ├── Explain selection rationale & margin savings over runner-up
-  └── Safe Halt: Trigger human intervention if no eligible couriers exist
-
-[Stage D: Human Approval Gate]
-  ├── Mandatory operator name & cost confirmation
-  ├── Pre-dispatch locking prevents unauthorized automated execution
-  └── Full audit logging to SQLite database
-
-[Stage E: Safe Execution]
-  ├── Enforce unique idempotency keys per order
-  ├── Handle network timeouts safely (CREATION_UNCERTAIN state)
-  └── Strictly block duplicate dispatch retries
-
-[Stage F: Verify & Reconcile]
-  ├── Independent 5-point verification (AWB, Order Match, Label, Pickup, Cost)
-  ├── Generate printable PDF (A6 / 4x6 thermal) & HTML shipping labels with Code128 barcodes & 2D QR codes
-  └── Confirm carrier pickup schedule and warehouse handover window
+Or in `.streamlit/secrets.toml`:
+```toml
+shipengine_api_key = "TEST_your_sandbox_api_key_here"
 ```
+
+Use the **🧪 Test Connection** button in the sidebar to verify your sandbox connection non-destructively (`GET /v1/carriers`).
 
 ---
 
@@ -96,44 +88,30 @@ python -m streamlit run src/ui/app.py
 *The web interface will open automatically at `http://localhost:8501`.*
 
 ### Sidebar 1-Click Demo Scenarios (Designed for Judges)
-The sidebar contains four pre-configured demonstration scenarios:
-
-1. **🎯 Demo A: Standard Balanced Parcel**
-   - *Specs:* 1.8 kg, 25×20×15 cm, New Delhi (110001) → Bengaluru (560001), COD ₹1,200.
-   - *Outcome:* Ranks 10 couriers. Winner: **Demo Surface Standard** (₹347.63, 5 business days). Fully explains cost breakdown (freight, fuel, COD fee, GST).
-2. **🎯 Demo B: Elongated Item (>100 cm)**
-   - *Specs:* 2.5 kg, 110×20×15 cm, New Delhi (110001) → Mumbai (400001).
-   - *Outcome:* Fails standard 45 cm demo box. Evaluator creates or loads custom packaging (**Custom Long Box 110**). The agent rejects **Demo Flash Overnight Express** (courier max length is 100 cm) and recommends eligible Surface transit.
-3. **🎯 Demo C: Remote Destination Routing**
-   - *Specs:* 1.2 kg, 20×15×10 cm, New Delhi (110001) → Itanagar (791111).
-   - *Outcome:* Destination PIN starts with prefix `79`. **Demo Air Express** and Express services are rejected with transparent reasons. The agent safely directs the parcel to Surface delivery without crashes or zero-cost hallucinations.
-4. **🎯 Demo D: Ambiguous Timeout & Safe Reconciliation**
-   - *Specs:* Simulates a socket network timeout during shipment dispatch.
-   - *Outcome:* Shipment transitions to `CREATION_UNCERTAIN`. Unsafe re-dispatch is blocked to prevent double-charging. The user can auto-reconcile or manually resolve via the operator panel.
+The sidebar contains ten pre-configured demonstration scenarios:
+1. **🎯 Demo A: Standard Balanced Parcel** (25×20×15 cm, 1.8 kg, COD ₹1,200).
+2. **🎯 Demo B: Oversized Elongated Item** (110×20×15 cm — auto-suggests custom 110cm box and filters length-limited couriers).
+3. **🎯 Demo C: Cheapest Option Rejected** (Re-choice workflow).
+4. **🎯 Demo D: Ambiguous Booking & Reconciliation** (Network drop timeout & idempotency lock).
+5. **🎯 Demo E (TC1): Same Parcel on 3 Couriers** (Ranked by lowest total cost).
+6. **🎯 Demo F (TC2): Large, Light Box** (Volumetric weight penalty with distinct divisors 5000/4500/4000).
+7. **🎯 Demo G (TC3): Destination PIN Not Serviceable** (Courier safely excluded with explicit audit reason).
+8. **🎯 Demo H (TC4): Label Created & AWB Verification** (5-point verification with printable PDF label).
+9. **🎯 Demo I: Mandatory Measurements & COD Validation**.
+10. **🎯 Demo J: No Eligible Couriers & Safe Failure Mode**.
 
 ---
 
-## 5. Hackathon Rubric Self-Assessment (100 Points)
+## 5. Verification & Test Suite
 
-| Judging Rubric Category | Weight | How Adaptive Shipping Agent Achieves Maximum Score |
-| :--- | :---: | :--- |
-| **1. Problem Fit & Usefulness** | **20 pts** | Solves critical Indian e-commerce logistics challenges: volumetric dead-weight penalties, courier dimensional constraints, remote PIN coverage, COD fee handling, and idempotency protection against duplicate dispatch costs. |
-| **2. Technical Implementation** | **20 pts** | Clean layered architecture: Python 3.14 domain models, Pydantic data contracts, SQLite persistence with schema migration, deterministic 3D packing rotation algorithms, and zero external cloud dependencies. |
-| **3. User Experience** | **10 pts** | Modern logistics theme with high-contrast UI (soft grey `#F5F7FB`, dark navy `#172033`, royal blue `#2563EB`). Intuitive 5-tab workflow, printable HTML shipping labels, 1-click evaluator demo presets, and responsive error handling. |
-| **4. Agentic Capability** | **25 pts** | **Highest Weight:** Full 6-stage autonomous lifecycle (Observe, Evaluate Alternatives, Decide, Gate, Execute, Verify). Distinguishes `VERIFIED`, `ELIGIBLE`, `INELIGIBLE`, `PENDING`, `FAILED`, and `UNRESOLVED` states. Explicitly requests operator intervention when infeasible. |
-| **5. Innovation** | **15 pts** | First shipping engine to unite 6-orientation packaging fit with courier-specific size ceilings and safe timeout idempotency reconciliation. Quantitatively proven in a reproducible 4-case benchmark matrix. |
-| **6. Presentation** | **10 pts** | Professional presentation, clear architecture diagrams, complete test reports (145/145 passed), clean codebase, and transparent demo disclosures. |
-| **TOTAL SCORE** | **100 pts** | **Ready for Evaluator Assessment** |
-
----
-
-## 6. Verification & Test Suite
-
-The application includes comprehensive test suites covering unit logic, state machines, packaging fit, idempotency, and the official competition test cases:
+The test suite covers unit logic, provider adapters, state machines, packaging fit, idempotency, and official scenarios:
 
 ```powershell
-# Run the complete test suite (145 tests)
-python -m pytest tests/ -v
+# Run the complete test suite (250 tests)
+pytest tests/
+
+# Run the dedicated ShipEngine Sandbox adapter tests
+pytest tests/test_shipengine_adapter.py
 
 # Run the 4 official test cases (TC1 - TC4)
 python run_official_scenarios.py
@@ -150,29 +128,24 @@ python -m src.domain.benchmark
 
 ---
 
-## 7. Honest Disclosures & Demarcation
-
-- **Synthetic Demo Data:** All carrier rates, transit times, tracking waybills (`DEMO-TRK-...`), and pickup slots are generated by the `DemoShippingAdapter`. Prominent `🔵 DEMO DATA` notices appear on every quote, label, and trace.
-- **No Live Financial Charges:** Live carrier credentials and live payment gateways are deliberately excluded from this prototype to prevent unintended charges during evaluation.
-- **ShipSandbox Endpoint:** Real-world tracking queries gracefully degrade to informative diagnostics when the sandbox service is offline or unreachable.
-
----
-
-## 8. Repository Structure
+## 6. Repository Structure
 
 ```
 adaptive-shipping-agent/
 ├── src/
 │   ├── domain/
 │   │   ├── benchmark.py           # Reproducible 4-test baseline vs agent benchmark
+│   │   ├── dimension_engine.py    # Dimension validation & courier size constraints
+│   │   ├── evaluator.py           # 10-scenario evaluation suite
 │   │   ├── freshness.py           # Quote timestamp currency & drift detector
+│   │   ├── label_generator.py     # Printable PDF & HTML label generation (A6 & 4x6)
 │   │   ├── models.py              # Pydantic schemas (Order, Address, CourierQuote, etc.)
 │   │   ├── official_scenarios.py  # Official competition scenarios TC1 - TC4
 │   │   ├── packaging.py           # 6-orientation orthogonal fit & custom box engine
 │   │   ├── pricing.py             # Slabs, fuel surcharges, COD fee & tax calculations
 │   │   ├── ranking.py             # Deterministic courier ranking & margin calculator
 │   │   ├── reconciliation.py      # Idempotent dispatch & timeout recovery service
-│   │   ├── stress_tester.py       # 12-scenario stability & fragility perturbation lab
+│   │   ├── stress_tester.py       # Decision stability & perturbation lab
 │   │   ├── verification.py        # Independent 5-point shipment verification audit
 │   │   ├── weight.py              # Volumetric vs dead weight breakdown
 │   │   └── workflow.py            # 6-Stage explainable agent decision engine & trace
@@ -184,25 +157,31 @@ adaptive-shipping-agent/
 │   ├── providers/
 │   │   ├── base.py                # CourierProvider abstract base class
 │   │   ├── demo_adapter.py        # Simulated 10-courier provider with label generator
-│   │   ├── registry.py            # Provider registry
-│   │   └── shipsandbox_client.py  # External tracking integration client
+│   │   ├── registry.py            # Provider registry & factory (Demo vs ShipEngine)
+│   │   └── shipengine_adapter.py  # Official ShipEngine Sandbox API integration
 │   └── ui/
 │       ├── app.py                 # Modern Streamlit logistics dashboard
 │       └── helpers.py             # UI formatting & form parsing pure functions
 ├── tests/
-│   ├── test_custom_packaging.py   # 15 tests: Custom packaging & 6-orientation fit
-│   ├── test_demo_adapter.py       # 11 tests: Carrier rates & constraints
-│   ├── test_freshness_and_reconciliation.py # 7 tests: Stale quotes & timeouts
-│   ├── test_official_scenarios.py # 5 tests: TC1 - TC4 verification
-│   ├── test_packaging.py          # 3 tests: Rotational packing logic
-│   ├── test_persistence.py        # 8 tests: SQLite, FSM, and idempotency locks
-│   ├── test_pricing.py            # 6 tests: Freight, fuel, COD, and GST
-│   ├── test_ranking.py            # 9 tests: Selection strategies & margins
-│   ├── test_stress_tester.py      # 8 tests: Decision stability & perturbations
-│   ├── test_ui_helpers.py         # 46 tests: Form validation & formatters
-│   ├── test_weight.py             # 7 tests: Volumetric rules & dead weight
-│   └── test_workflow.py          # 8 tests: 6-Stage lifecycle & benchmark matrix
+│   ├── test_custom_packaging.py
+│   ├── test_demo_adapter.py
+│   ├── test_dimension_engine.py
+│   ├── test_evaluator_scenarios.py
+│   ├── test_freshness_and_reconciliation.py
+│   ├── test_label_generator.py
+│   ├── test_mandatory_dimensions.py
+│   ├── test_official_scenarios.py
+│   ├── test_packaging.py
+│   ├── test_persistence.py
+│   ├── test_pricing.py
+│   ├── test_ranking.py
+│   ├── test_shipengine_adapter.py # 20 tests: ShipEngine Sandbox auth, rates, labels, tracking
+│   ├── test_simplified_ui_flow.py
+│   ├── test_stress_tester.py
+│   ├── test_ui_helpers.py
+│   ├── test_weight.py
+│   └── test_workflow.py
 ├── run_official_scenarios.py      # Standalone runner for TC1 - TC4
 ├── run_demo.py                    # Standalone CLI demonstration
-└── README.md                      # Comprehensive judge-ready documentation
+└── README.md                      # Comprehensive documentation
 ```
