@@ -2,7 +2,7 @@
 > **Autonomous, Constraint-Aware Logistics Decision Support & Execution Gate Engine**  
 > *Category:* Business & Productivity AI — ZiroDigital Agentic AI Hackathon 2026  
 > *Live Entrypoint:* `python -m streamlit run src/ui/app.py`  
-> *Test Suite:* `python -m pytest tests/` (250/250 Passing) | `python run_official_scenarios.py` (4/4 Passing)
+> *Test Suite:* `python -m pytest tests/` (268/269 Passing, 1 opt-in live test skipped) | `python run_official_scenarios.py` (4/4 Passing)
 
 ---
 
@@ -75,7 +75,34 @@ Use the **🧪 Test Connection** button in the sidebar to verify your sandbox co
 
 ---
 
-## 4. Evaluator Quick-Start & 1-Click Demo Scenarios
+## 4. Smart Personalized Shipping Advisor & Closest-Match Fallback
+
+The agent replaces generic "lowest price" tables with an interactive, constraint-aware shipping advisor:
+
+### User Shipping Preferences
+- **Maximum Shipping Budget:** Define a maximum target cost in INR (₹) or choose "Flexible budget".
+- **Delivery Deadline:** Target arrival time ("Within 1 day", "Within 2 days", "Within 3 days", or "Flexible delivery time").
+- **Live In-Situ Adjustment:** Users can quickly tweak their preferences or click 1-click adjustment buttons (`+₹50`, `+₹100`, `+1 Day`, `Flexible`) directly in the results view to see recommendations update live.
+
+### Decision & Ranking Rules
+1. **Exact Preference Match:** Couriers satisfying both budget and deadline are prioritized. The lowest verified total cost among them is selected. Ties are broken by faster delivery SLA and carrier constraints.
+2. **Deterministic Closest-Match Fallback:** When no single courier satisfies both constraints, the engine never halts with "no courier found". It evaluates trade-offs and highlights:
+   - **Best Compromise:** The candidate with the optimal balance (single constraint violations strictly prioritized over double violations).
+   - **Lowest Cost Alternative:** The cheapest serviceable option on the route.
+   - **Fastest Alternative:** The quickest verified delivery option.
+3. **Personalized Explanations:**
+   - Plain-language bullets explaining why the courier was chosen based on budget and speed.
+   - Dynamic budget status (`₹XX below limit` or `₹YY over budget`).
+   - Dynamic delivery timeline (`estimated in X days vs target`).
+   - Explicit advantages, trade-offs, and verification status.
+4. **Alternative Courier Switching & Confirmation Gate:**
+   - Users can choose any alternative courier with a single click.
+   - Dynamic comparative hints explain what is gained or sacrificed (e.g. *"Costs ₹40 more but arrives 1 day earlier"*).
+   - If an alternative violates preferred constraints, a prominent warning and mandatory acknowledgement checkbox gate the approval workflow before dispatch.
+
+---
+
+## 5. Evaluator Quick-Start & 1-Click Demo Scenarios
 
 ### Launch the Application
 ```powershell
@@ -113,6 +140,9 @@ pytest tests/
 # Run the dedicated ShipEngine Sandbox adapter tests
 pytest tests/test_shipengine_adapter.py
 
+# Run the Smart Personalized Shipping Advisor tests
+pytest tests/test_personalized_advisor.py
+
 # Run the 4 official test cases (TC1 - TC4)
 python run_official_scenarios.py
 
@@ -128,12 +158,13 @@ python -m src.domain.benchmark
 
 ---
 
-## 6. Repository Structure
+## 7. Repository Structure
 
 ```
 adaptive-shipping-agent/
 ├── src/
 │   ├── domain/
+│   │   ├── advisor.py             # Smart Personalized Courier Advisor & Closest-Match Engine
 │   │   ├── benchmark.py           # Reproducible 4-test baseline vs agent benchmark
 │   │   ├── dimension_engine.py    # Dimension validation & courier size constraints
 │   │   ├── evaluator.py           # 10-scenario evaluation suite
@@ -173,6 +204,7 @@ adaptive-shipping-agent/
 │   ├── test_official_scenarios.py
 │   ├── test_packaging.py
 │   ├── test_persistence.py
+│   ├── test_personalized_advisor.py # 18 tests: Smart Advisor, preferences & closest match
 │   ├── test_pricing.py
 │   ├── test_ranking.py
 │   ├── test_shipengine_adapter.py # 20 tests: ShipEngine Sandbox auth, rates, labels, tracking

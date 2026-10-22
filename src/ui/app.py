@@ -34,6 +34,14 @@ from typing import Any, Dict, List, Optional
 import streamlit as st
 
 # ── Domain imports ──────────────────────────────────────────────────────────
+from src.domain.advisor import (
+    AdvisorRecommendationResult,
+    CourierComplianceCategory,
+    CourierPreferenceCompliance,
+    DeliveryDeadlineOption,
+    UserShippingPreferences,
+    build_advisor_recommendation,
+)
 from src.domain.evaluator import EvaluatorSuite, SCENARIO_METADATA, ScenarioStatus
 from src.domain.official_scenarios import OfficialScenariosRunner, OfficialTestCaseResult
 from src.domain.freshness import check_quote_freshness
@@ -171,6 +179,12 @@ def _init_session():
         "official_test_results": {},
         "active_provider_mode": "demo",
         "shipengine_connection_status": None,
+        "pref_flexible_budget": True,
+        "pref_max_budget": 500.0,
+        "pref_delivery_deadline": "Flexible delivery time",
+        "advisor_result": None,
+        "primary_recommended_quote": None,
+        "user_confirmed_preference_tradeoff": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -706,6 +720,56 @@ def _render_ship_a_parcel_form():
                 key="form_cod_amount",
             )
 
+        st.markdown("---")
+        st.markdown("#### 🎯 Shipping Preferences (Budget & Delivery Target)")
+        st.caption("Tell us your budget limit and delivery deadline so our Smart Shipping Advisor can evaluate trade-offs and recommend the best courier.")
+        pref_col1, pref_col2 = st.columns(2)
+        with pref_col1:
+            st.markdown("**Maximum Shipping Budget**")
+            is_flex_b = st.checkbox(
+                "Flexible budget (find lowest available price)",
+                value=st.session_state.get("pref_flexible_budget", True),
+                key="chk_flex_budget",
+            )
+            st.session_state["pref_flexible_budget"] = is_flex_b
+            if not is_flex_b:
+                b_val = st.number_input(
+                    "Maximum preferred shipping cost (₹) *",
+                    min_value=10.0,
+                    max_value=100000.0,
+                    value=float(st.session_state.get("pref_max_budget", 500.0)),
+                    step=25.0,
+                    format="%.2f",
+                    key="input_max_budget",
+                    help="Maximum landed shipping cost you are willing to pay for this shipment.",
+                )
+                st.session_state["pref_max_budget"] = float(b_val)
+            else:
+                st.caption("ℹ️ Flexible budget: couriers will be evaluated to find the best available price.")
+
+        with pref_col2:
+            st.markdown("**Delivery Deadline**")
+            deadline_opts = [
+                "Flexible delivery time",
+                "Within 1 day",
+                "Within 2 days",
+                "Within 3 days",
+            ]
+            curr_deadline = st.session_state.get("pref_delivery_deadline", "Flexible delivery time")
+            def_d_idx = deadline_opts.index(curr_deadline) if curr_deadline in deadline_opts else 0
+            chosen_deadline = st.selectbox(
+                "How soon should the parcel arrive?",
+                options=deadline_opts,
+                index=def_d_idx,
+                key="select_delivery_deadline",
+                help="Target maximum transit time from carrier pickup to final delivery.",
+            )
+            st.session_state["pref_delivery_deadline"] = chosen_deadline
+            if chosen_deadline == "Flexible delivery time":
+                st.caption("ℹ️ Flexible delivery: standard and economy transit options are included.")
+            else:
+                st.caption(f"⚡ We'll prioritize couriers delivering {chosen_deadline.lower()}.")
+
         # ── Address & Reference Details (Sensible Defaults) ──────────────────
         with st.expander("👤 Sender & Recipient Contact Information (Optional)", expanded=False):
             st.caption("Customise shipping contact details. Sensible fulfillment defaults are pre-filled.")
@@ -913,13 +977,25 @@ def _render_ship_a_parcel_form():
             except Exception:
                 pass
 
-            # Ranking
+            # Ranking & Smart Personalized Advisor
+            user_prefs = UserShippingPreferences.create(
+                max_budget=st.session_state.get("pref_max_budget") if not st.session_state.get("pref_flexible_budget", True) else None,
+                is_flexible_budget=st.session_state.get("pref_flexible_budget", True),
+                deadline_choice=st.session_state.get("pref_delivery_deadline", "Flexible delivery time"),
+            )
+            advisor_res = build_advisor_recommendation(quotes, user_prefs)
+            st.session_state["advisor_result"] = advisor_res
+
             prefs = RankingPreferences(mode=RankingMode.LOWEST_COST)
             ranking_result = rank_couriers(quotes, prefs)
             st.session_state["ranking_result"] = ranking_result
-            st.session_state["selected_quote"] = (
+
+            primary_q = advisor_res.primary_recommendation.quote if advisor_res.primary_recommendation else (
                 ranking_result.selected_winner.quote if ranking_result.selected_winner else None
             )
+            st.session_state["primary_recommended_quote"] = primary_q
+            st.session_state["selected_quote"] = primary_q
+            st.session_state["user_confirmed_preference_tradeoff"] = False
 
             # Agent Trace
             engine = AgentDecisionEngine()
@@ -948,11 +1024,10 @@ def _render_ship_a_parcel_form():
         st.rerun()
 
 
-# ── Step 2: Redesigned Courier Comparison & Our Recommendation ───────────────
+# ── Step 2: Smart Personalized Courier Recommendations & Trade-Off Advisor ────
 def _render_rate_comparison():
     order: Optional[OrderInput] = st.session_state.get("order")
     quotes = st.session_state.get("quotes") or []
-    ranking_result = st.session_state.get("ranking_result")
 
     if not order or not quotes:
         return
@@ -973,38 +1048,250 @@ def _render_rate_comparison():
         return
 
     st.divider()
-    st.subheader("2. Compare Suitable Courier Options")
+    st.subheader("2. Smart Courier Recommendation & Alternatives")
 
-    winner_quote_id: Optional[str] = None
-    winner_quote = None
-    if (
-        ranking_result
-        and getattr(ranking_result, "selected_winner", None)
-        and getattr(ranking_result.selected_winner, "quote", None)
-    ):
-        winner_quote = ranking_result.selected_winner.quote
-        winner_quote_id = winner_quote.quote_id
+    # Retrieve or build Smart Advisor Recommendation
+    advisor_result: Optional[AdvisorRecommendationResult] = st.session_state.get("advisor_result")
+    if not advisor_result or not advisor_result.all_evaluated:
+        user_prefs = UserShippingPreferences.create(
+            max_budget=st.session_state.get("pref_max_budget") if not st.session_state.get("pref_flexible_budget", True) else None,
+            is_flexible_budget=st.session_state.get("pref_flexible_budget", True),
+            deadline_choice=st.session_state.get("pref_delivery_deadline", "Flexible delivery time"),
+        )
+        advisor_result = build_advisor_recommendation(quotes, user_prefs)
+        st.session_state["advisor_result"] = advisor_result
+
+    # Determine primary recommended quote and active selected quote
+    primary_quote = st.session_state.get("primary_recommended_quote")
+    if not primary_quote and advisor_result.primary_recommendation:
+        primary_quote = advisor_result.primary_recommendation.quote
+        st.session_state["primary_recommended_quote"] = primary_quote
+
+    selected_quote = st.session_state.get("selected_quote")
+    if not selected_quote:
+        selected_quote = primary_quote
+        st.session_state["selected_quote"] = selected_quote
+
+    # ── Preference Indicator & Live Tweak Bar ──
+    prefs = advisor_result.preferences
+    b_desc = f"Max {fmt_inr(prefs.max_budget)}" if not prefs.is_flexible_budget and prefs.max_budget else "Flexible Budget"
+    d_desc = f"Within {prefs.max_delivery_days} day(s)" if not prefs.is_flexible_deadline and prefs.max_delivery_days else "Flexible Delivery Time"
+
+    col_pref_info, _ = st.columns([3, 1])
+    with col_pref_info:
+        st.caption(f"🎯 **Active Shipping Preferences:** {b_desc} | {d_desc}")
+
+    with st.expander("⚙️ Edit Shipping Preferences (Budget & Speed)", expanded=False):
+        ec1, ec2, ec3 = st.columns([2, 2, 1])
+        with ec1:
+            tweak_flex_b = st.checkbox(
+                "Flexible Budget",
+                value=st.session_state.get("pref_flexible_budget", True),
+                key="tweak_chk_flex_budget",
+            )
+            tweak_b_val = st.number_input(
+                "Max Budget (₹)",
+                min_value=10.0,
+                max_value=100000.0,
+                value=float(st.session_state.get("pref_max_budget", 500.0)),
+                step=25.0,
+                disabled=tweak_flex_b,
+                key="tweak_input_budget",
+            )
+        with ec2:
+            tweak_deadline_opts = [
+                "Flexible delivery time",
+                "Within 1 day",
+                "Within 2 days",
+                "Within 3 days",
+            ]
+            tweak_curr_d = st.session_state.get("pref_delivery_deadline", "Flexible delivery time")
+            tweak_d_idx = tweak_deadline_opts.index(tweak_curr_d) if tweak_curr_d in tweak_deadline_opts else 0
+            tweak_d_sel = st.selectbox(
+                "Delivery Target",
+                options=tweak_deadline_opts,
+                index=tweak_d_idx,
+                key="tweak_select_deadline",
+            )
+        with ec3:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Apply Changes", key="btn_apply_pref_tweaks", use_container_width=True):
+                st.session_state["pref_flexible_budget"] = tweak_flex_b
+                st.session_state["pref_max_budget"] = float(tweak_b_val)
+                st.session_state["pref_delivery_deadline"] = tweak_d_sel
+                new_prefs = UserShippingPreferences.create(
+                    max_budget=float(tweak_b_val) if not tweak_flex_b else None,
+                    is_flexible_budget=tweak_flex_b,
+                    deadline_choice=tweak_d_sel,
+                )
+                new_adv_res = build_advisor_recommendation(quotes, new_prefs)
+                st.session_state["advisor_result"] = new_adv_res
+                if new_adv_res.primary_recommendation:
+                    st.session_state["primary_recommended_quote"] = new_adv_res.primary_recommendation.quote
+                    st.session_state["selected_quote"] = new_adv_res.primary_recommendation.quote
+                st.session_state["approval_given"] = False
+                st.session_state["approved_record"] = None
+                st.rerun()
+
+    # ── Section 6: Dedicated "No exact match" experience ──
+    if not advisor_result.is_exact_match:
+        with st.container(border=True):
+            st.warning("### ⚠️ No exact match for your preferences")
+            st.markdown(
+                f"We couldn't find a verified courier that meets both your preferred budget (**{b_desc}**) "
+                f"and delivery deadline (**{d_desc}**). Here are the closest available alternatives based on trade-offs:"
+            )
+
+            # Quick action adjustment buttons
+            act_col1, act_col2, act_col3, act_col4 = st.columns(4)
+            with act_col1:
+                if st.button("➕ Add ₹50 Budget", use_container_width=True, key="btn_qa_add_50"):
+                    curr_b = st.session_state.get("pref_max_budget", 500.0)
+                    st.session_state["pref_max_budget"] = curr_b + 50.0
+                    st.session_state["pref_flexible_budget"] = False
+                    user_prefs = UserShippingPreferences.create(
+                        max_budget=st.session_state["pref_max_budget"],
+                        is_flexible_budget=False,
+                        deadline_choice=st.session_state.get("pref_delivery_deadline", "Flexible delivery time"),
+                    )
+                    st.session_state["advisor_result"] = build_advisor_recommendation(quotes, user_prefs)
+                    st.session_state["approval_given"] = False
+                    st.rerun()
+            with act_col2:
+                if st.button("➕ Add ₹100 Budget", use_container_width=True, key="btn_qa_add_100"):
+                    curr_b = st.session_state.get("pref_max_budget", 500.0)
+                    st.session_state["pref_max_budget"] = curr_b + 100.0
+                    st.session_state["pref_flexible_budget"] = False
+                    user_prefs = UserShippingPreferences.create(
+                        max_budget=st.session_state["pref_max_budget"],
+                        is_flexible_budget=False,
+                        deadline_choice=st.session_state.get("pref_delivery_deadline", "Flexible delivery time"),
+                    )
+                    st.session_state["advisor_result"] = build_advisor_recommendation(quotes, user_prefs)
+                    st.session_state["approval_given"] = False
+                    st.rerun()
+            with act_col3:
+                if st.button("⏱️ Allow 1 More Day", use_container_width=True, key="btn_qa_add_day"):
+                    curr_d = DeliveryDeadlineOption.to_days(st.session_state.get("pref_delivery_deadline", "")) or 1
+                    new_d = min(curr_d + 1, 3)
+                    st.session_state["pref_delivery_deadline"] = DeliveryDeadlineOption.from_days(new_d)
+                    user_prefs = UserShippingPreferences.create(
+                        max_budget=st.session_state.get("pref_max_budget") if not st.session_state.get("pref_flexible_budget", True) else None,
+                        is_flexible_budget=st.session_state.get("pref_flexible_budget", True),
+                        deadline_choice=st.session_state["pref_delivery_deadline"],
+                    )
+                    st.session_state["advisor_result"] = build_advisor_recommendation(quotes, user_prefs)
+                    st.session_state["approval_given"] = False
+                    st.rerun()
+            with act_col4:
+                if st.button("🔄 Flexible Deadline", use_container_width=True, key="btn_qa_flex_deadline"):
+                    st.session_state["pref_delivery_deadline"] = "Flexible delivery time"
+                    user_prefs = UserShippingPreferences.create(
+                        max_budget=st.session_state.get("pref_max_budget") if not st.session_state.get("pref_flexible_budget", True) else None,
+                        is_flexible_budget=st.session_state.get("pref_flexible_budget", True),
+                        deadline_choice="Flexible delivery time",
+                    )
+                    st.session_state["advisor_result"] = build_advisor_recommendation(quotes, user_prefs)
+                    st.session_state["approval_given"] = False
+                    st.rerun()
+
+            st.markdown("---")
+            # 3 Closest Match Cards
+            c_cards = []
+            if advisor_result.best_compromise:
+                c_cards.append(("⚖️ Best Compromise", advisor_result.best_compromise, "Optimal trade-off for your constraints"))
+            if advisor_result.lowest_cost_alternative:
+                c_cards.append(("💰 Lowest Cost", advisor_result.lowest_cost_alternative, "Cheapest confirmed option"))
+            if advisor_result.fastest_alternative:
+                c_cards.append(("⚡ Fastest Delivery", advisor_result.fastest_alternative, "Quickest transit SLA"))
+
+            # Deduplicate by courier_code while keeping distinct category badges
+            seen_codes = set()
+            unique_cards = []
+            for item in c_cards:
+                if item[1].courier_code not in seen_codes:
+                    seen_codes.add(item[1].courier_code)
+                    unique_cards.append(item)
+
+            card_cols = st.columns(max(len(unique_cards), 1))
+            for idx, (title, comp, tag_sub) in enumerate(unique_cards):
+                with card_cols[idx]:
+                    with st.container(border=True):
+                        st.markdown(f"#### {title}")
+                        st.caption(tag_sub)
+                        st.markdown(f"**{comp.courier_name}**")
+                        st.markdown(f"**Price:** {fmt_inr(comp.total_cost, currency=comp.currency)}")
+                        sla_txt = f"{comp.estimated_delivery_days} business days" if comp.estimated_delivery_days else "Standard SLA"
+                        st.markdown(f"**Transit:** {sla_txt}")
+
+                        if comp.budget_overrun > 0:
+                            st.caption(f":red[⚠️ Exceeds budget by {comp.currency} {comp.budget_overrun:,.2f}]")
+                        elif comp.meets_budget:
+                            st.caption(f":green[✅ Within budget (saves {comp.currency} {comp.budget_savings:,.2f})]")
+
+                        if comp.delay_days > 0:
+                            st.caption(f":orange[⚠️ Misses deadline by {comp.delay_days} day(s)]")
+                        elif comp.meets_deadline:
+                            st.caption(f":green[✅ Meets deadline]")
+
+                        st.markdown(f"- 🟢 **Advantage:** {comp.main_advantage}")
+                        st.markdown(f"- 🟠 **Disadvantage:** {comp.main_disadvantage}")
+                        st.caption(comp.data_verification_text)
+
+                        is_cur_sel = bool(selected_quote and selected_quote.quote_id == comp.quote.quote_id)
+                        if is_cur_sel:
+                            st.info("✅ **Currently Selected**")
+                        else:
+                            if st.button("👉 Choose this courier", key=f"btn_choose_cm_{comp.courier_code}_{idx}", use_container_width=True):
+                                st.session_state["selected_quote"] = comp.quote
+                                st.session_state["approval_given"] = False
+                                st.session_state["approved_record"] = None
+                                st.rerun()
 
     # ── "Our Recommendation" Section ──
-    if winner_quote and winner_quote.cost_breakdown:
+    rec_comp = None
+    if primary_quote:
+        rec_comp = next((c for c in advisor_result.all_evaluated if c.courier_code == primary_quote.courier_code), None)
+
+    active_comp = None
+    if selected_quote:
+        active_comp = next((c for c in advisor_result.all_evaluated if c.courier_code == selected_quote.courier_code), None)
+
+    display_comp = active_comp or rec_comp
+
+    if display_comp and display_comp.quote.cost_breakdown:
+        is_user_switched = bool(primary_quote and selected_quote and primary_quote.quote_id != selected_quote.quote_id)
+
         with st.container(border=True):
-            st.markdown("### 🏆 Our Recommendation")
+            header_prefix = "🏆 Primary Recommendation" if not is_user_switched else "🚚 Selected Courier"
+            st.markdown(f"### {header_prefix}: {display_comp.courier_name}")
+
+            if is_user_switched and primary_quote:
+                st.info(
+                    f"ℹ️ **Alternative Selected:** You have selected `{display_comp.courier_name}`. "
+                    f"Our primary recommendation based on your preferences was `{primary_quote.courier_name}`.",
+                    icon="🔄",
+                )
+                if st.button("🔄 Revert to Recommended Courier", key="btn_revert_to_primary", use_container_width=True):
+                    st.session_state["selected_quote"] = primary_quote
+                    st.session_state["approval_given"] = False
+                    st.session_state["approved_record"] = None
+                    st.rerun()
+
             rec_col1, rec_col2 = st.columns([3, 1])
             with rec_col1:
-                st.markdown(
-                    f"**We recommend {winner_quote.courier_name}** because it is eligible for this route "
-                    f"and offers the lowest verified total cost among the available options."
-                )
-                if ranking_result and ranking_result.cost_margin_over_runner_up and ranking_result.cost_margin_over_runner_up > 0:
-                    st.caption(f"💰 Saves {fmt_inr(ranking_result.cost_margin_over_runner_up)} compared to the runner-up eligible courier.")
+                st.markdown(f"**Service:** {display_comp.service_type}")
+                st.markdown(f"**Summary:** {advisor_result.summary_explanation if not is_user_switched else display_comp.plain_language_hint}")
+                if advisor_result.trade_off_explanation and not is_user_switched:
+                    st.caption(f"⚖️ {advisor_result.trade_off_explanation}")
             with rec_col2:
-                st.markdown(f"**Landed Cost:** **{fmt_inr(winner_quote.cost_breakdown.total_cost)}**")
-                if winner_quote.estimated_delivery_days:
-                    st.caption(f"Est. Transit: {winner_quote.estimated_delivery_days} business days")
+                st.markdown(f"**Landed Cost:** **{fmt_inr(display_comp.total_cost, currency=display_comp.currency)}**")
+                if display_comp.estimated_delivery_days:
+                    st.caption(f"Est. Transit: {display_comp.estimated_delivery_days} business days")
 
             # Volumetric / Chargeable weight callout
-            if winner_quote.weight_result:
-                wb = winner_quote.weight_result
+            if display_comp.quote.weight_result:
+                wb = display_comp.quote.weight_result
                 if wb.is_volumetric_penalty:
                     st.warning(
                         f"⚠️ **Volumetric Weight Penalty Applies:** Dimensional weight ({wb.volumetric_weight_kg:.2f} kg) "
@@ -1018,99 +1305,106 @@ def _render_rate_comparison():
                         f"(Volumetric weight is {wb.volumetric_weight_kg:.2f} kg, divisor {wb.divisor_used:,.0f}).",
                     )
 
-            # Re-Choice actions
-            col_rc1, col_rc2 = st.columns(2)
-            with col_rc1:
-                if st.button(
-                    f"❌ Reject {winner_quote.courier_name} & Request Alternative",
-                    key="btn_rechoice_reject",
-                    use_container_width=True,
-                ):
-                    excluded = st.session_state.setdefault("excluded_courier_codes", [])
-                    if winner_quote.courier_code not in excluded:
-                        excluded.append(winner_quote.courier_code)
-                    all_quotes = st.session_state.get("quotes", [])
-                    remaining = [q for q in all_quotes if q.courier_code not in excluded]
-                    prefs = RankingPreferences(mode=RankingMode.LOWEST_COST)
-                    new_ranking = rank_couriers(remaining, prefs)
-                    st.session_state["ranking_result"] = new_ranking
-                    st.session_state["selected_quote"] = (
-                        new_ranking.selected_winner.quote if new_ranking.selected_winner else None
-                    )
-                    st.session_state["approval_given"] = False
-                    st.session_state["approved_record"] = None
-                    st.rerun()
+            # Redesigned "Why this recommendation?" Section
+            st.markdown("#### 💡 Why this courier?")
+            st.markdown(f"- 🎯 **Selection Reason:** {advisor_result.summary_explanation if not is_user_switched else display_comp.plain_language_hint}")
+            st.markdown(f"- 💰 **Budget Analysis:** {display_comp.budget_status_text}")
+            st.markdown(f"- ⏱️ **Delivery Timeline:** {display_comp.deadline_status_text}")
+            st.markdown(f"- 🌟 **Main Advantage:** {display_comp.main_advantage}")
+            st.markdown(f"- ⚠️ **Key Limitation / Trade-off:** {display_comp.main_disadvantage}")
+            st.markdown(f"- 🛡️ **Data Verification:** {display_comp.data_verification_text}")
 
-            with col_rc2:
-                if st.session_state.get("excluded_courier_codes"):
-                    if st.button(
-                        "🔄 Reset Courier Exclusions (Show All)",
-                        key="btn_rechoice_reset",
-                        use_container_width=True,
-                    ):
-                        st.session_state["excluded_courier_codes"] = []
-                        all_quotes = st.session_state.get("quotes", [])
-                        prefs = RankingPreferences(mode=RankingMode.LOWEST_COST)
-                        new_ranking = rank_couriers(all_quotes, prefs)
-                        st.session_state["ranking_result"] = new_ranking
-                        st.session_state["selected_quote"] = (
-                            new_ranking.selected_winner.quote if new_ranking.selected_winner else None
-                        )
-                        st.session_state["approval_given"] = False
-                        st.session_state["approved_record"] = None
-                        st.rerun()
+    # ── Compare Alternative Couriers Section ──
+    eligible_comps = [c for c in advisor_result.all_evaluated if c.is_serviceable]
+    if eligible_comps:
+        st.markdown("---")
+        st.markdown("#### 📊 Compare All Available Couriers")
+        st.caption("Review differences in cost, speed, and preference alignment against the recommendation.")
 
-            if st.session_state.get("excluded_courier_codes"):
-                st.caption(f"ℹ️ Rejected couriers: {', '.join(st.session_state['excluded_courier_codes'])}")
+        for comp in eligible_comps:
+            is_active = bool(selected_quote and selected_quote.quote_id == comp.quote.quote_id)
+            is_primary = bool(primary_quote and primary_quote.quote_id == comp.quote.quote_id)
 
-            with st.expander("💡 Why this recommendation?", expanded=False):
-                st.markdown(f"- **Selection Strategy:** Lowest Verified Cost")
-                st.markdown(f"- **Route Serviceability:** Origin {order.sender.pin_code} ➔ Destination {order.recipient.pin_code} verified.")
-                st.markdown(
-                    f"- **Mandatory Measurements Verified:** {order.dimensions.length_cm:.1f} × "
-                    f"{order.dimensions.width_cm:.1f} × {order.dimensions.height_cm:.1f} cm, "
-                    f"Actual Weight {order.parcel_weight_kg:.2f} kg."
-                )
-                st.markdown(f"- **Price Confirmation:** Simulated rate via Demo Shipping Adapter.")
+            with st.container(border=True):
+                col_left, col_right = st.columns([3, 1])
+                with col_left:
+                    # Courier title and badges
+                    badge_items = []
+                    if is_primary:
+                        badge_items.append("🏆 Primary Recommendation")
+                    if is_active:
+                        badge_items.append("✅ Active Selected")
+                    for t in comp.tags:
+                        if t == "LOWEST_COST":
+                            badge_items.append("💰 Lowest Cost")
+                        elif t == "FASTEST_DELIVERY":
+                            badge_items.append("⚡ Fastest Delivery")
+                        elif t == "BEST_COMPROMISE":
+                            badge_items.append("⚖️ Best Compromise")
 
-    # ── Simplified Courier Comparison Cards ──
-    eligible = [q for q in quotes if q.is_eligible and q.cost_breakdown]
-    ineligible = [q for q in quotes if not q.is_eligible or not q.cost_breakdown]
+                    badge_str = f" `{'` `'.join(badge_items)}`" if badge_items else ""
+                    st.markdown(f"**{comp.courier_name}** ({comp.service_type}){badge_str}")
 
-    if eligible:
-        st.markdown("#### Suitable Shipping Options")
-        sorted_eligible = sorted(eligible, key=lambda q: q.cost_breakdown.total_cost if q.cost_breakdown else 1e9)
-        card_labels = []
-        for q in sorted_eligible:
-            is_w = bool(winner_quote_id and q.quote_id == winner_quote_id)
-            status_lbl, badge_col, _ = friendly_courier_status(q, is_winner=is_w)
-            cost_str = fmt_inr(q.cost_breakdown.total_cost)
-            days_str = f"{q.estimated_delivery_days} days" if q.estimated_delivery_days else "Standard SLA"
-            card_labels.append(f"{q.courier_name} — {cost_str} ({days_str})")
+                    # Plain-language hint
+                    if comp.plain_language_hint:
+                        st.markdown(f"_{comp.plain_language_hint}_")
 
-        sel_quote = st.session_state.get("selected_quote")
-        current_idx = 0
-        if sel_quote:
-            for i, q in enumerate(sorted_eligible):
-                if q.quote_id == sel_quote.quote_id:
-                    current_idx = i
-                    break
+                    # Cost & Days difference callout
+                    diff_parts = []
+                    if comp.cost_diff_vs_recommended is not None and not is_primary:
+                        sign = "+" if comp.cost_diff_vs_recommended > 0 else ""
+                        diff_parts.append(f"Price diff vs recommendation: **{sign}{fmt_inr(comp.cost_diff_vs_recommended, currency=comp.currency)}** ({sign}{comp.cost_pct_vs_recommended}%)")
 
-        chosen_option = st.radio(
-            "Select your preferred courier for dispatch:",
-            options=card_labels,
-            index=current_idx,
-            key="courier_card_choice",
-        )
+                    if comp.days_diff_vs_recommended is not None and not is_primary:
+                        if comp.days_diff_vs_recommended < 0:
+                            diff_parts.append(f"Transit: **{abs(comp.days_diff_vs_recommended)} day(s) earlier**")
+                        elif comp.days_diff_vs_recommended > 0:
+                            diff_parts.append(f"Transit: **{comp.days_diff_vs_recommended} day(s) later**")
+                        else:
+                            diff_parts.append(f"Transit: **Same SLA**")
 
-        chosen_idx = card_labels.index(chosen_option) if chosen_option in card_labels else 0
-        newly_selected = sorted_eligible[chosen_idx]
-        if not sel_quote or newly_selected.quote_id != sel_quote.quote_id:
-            st.session_state["selected_quote"] = newly_selected
-            st.session_state["approval_given"] = False
-            st.session_state["approved_record"] = None
+                    if diff_parts:
+                        st.caption(" | ".join(diff_parts))
+
+                    # Compliance pills
+                    c_pills = []
+                    if comp.meets_budget:
+                        c_pills.append(f":green[✅ Fits Budget ({comp.currency} {comp.total_cost:,.2f})]")
+                    else:
+                        c_pills.append(f":red[⚠️ Exceeds Budget (+{comp.currency} {comp.budget_overrun:,.2f})]")
+
+                    if comp.meets_deadline:
+                        c_pills.append(f":green[✅ Meets Deadline ({comp.estimated_delivery_days}d)]")
+                    elif comp.delay_days > 0:
+                        c_pills.append(f":orange[⚠️ Late (+{comp.delay_days}d)]")
+                    else:
+                        c_pills.append(":gray[⚪ SLA Unverified]")
+
+                    st.markdown(" ".join(c_pills))
+
+                    # Advantage / Disadvantage
+                    st.markdown(f"- 🟢 **Advantage:** {comp.main_advantage}")
+                    st.markdown(f"- 🟠 **Disadvantage:** {comp.main_disadvantage}")
+
+                with col_right:
+                    st.markdown(f"**{fmt_inr(comp.total_cost, currency=comp.currency)}**")
+                    if comp.estimated_delivery_days:
+                        st.caption(f"{comp.estimated_delivery_days} business days")
+                    else:
+                        st.caption("Standard SLA")
+
+                    if is_active:
+                        st.info("✅ **Selected**")
+                    else:
+                        if st.button("👉 Choose this courier", key=f"btn_choose_courier_{comp.courier_code}", use_container_width=True):
+                            st.session_state["selected_quote"] = comp.quote
+                            st.session_state["approval_given"] = False
+                            st.session_state["approved_record"] = None
+                            st.session_state["user_confirmed_preference_tradeoff"] = False
+                            st.rerun()
 
     # Ineligible Couriers (Cleanly Hidden in Expander)
+    ineligible = advisor_result.unserviceable
     if ineligible:
         with st.expander(f"❌ Unavailable Couriers ({len(ineligible)})", expanded=False):
             st.caption("These couriers cannot service this parcel due to regional limits or carrier constraints.")
@@ -1128,8 +1422,8 @@ def _render_rate_comparison():
             f"Dead Weight: {order.parcel_weight_kg:.2f} kg | Volume: {order.dimensions.volume_cm3:,.0f} cm³ | "
             f"Girth: {girth_val:.1f} cm | Length + Girth: {l_plus_g:.1f} cm"
         )
-        if winner_quote and winner_quote.weight_result:
-            wb = format_weight_breakdown(winner_quote.weight_result)
+        if selected_quote and selected_quote.weight_result:
+            wb = format_weight_breakdown(selected_quote.weight_result)
             st.json(wb)
         trace: Optional[AgentDecisionTrace] = st.session_state.get("decision_trace")
         if trace:
@@ -1195,8 +1489,44 @@ def _render_review_and_approve_section():
         st.error(f"⛔ Route validation error: {err_p_gate or err_d_gate or svc_msg_gate}. Approval and shipment creation blocked.")
         return
 
+    # Preference Trade-off Warning & Required Confirmation Gate
+    advisor_result = st.session_state.get("advisor_result")
+    pref_violation_reasons = []
+    if advisor_result and selected_quote:
+        comp = next((c for c in advisor_result.all_evaluated if c.courier_code == selected_quote.courier_code), None)
+        if comp and not comp.meets_both:
+            if not comp.meets_budget:
+                pref_violation_reasons.append(
+                    f"Exceeds preferred budget limit by {comp.currency} {comp.budget_overrun:,.2f} (budget: {comp.currency} {advisor_result.preferences.max_budget:,.2f})"
+                )
+            if not comp.meets_deadline:
+                if comp.has_sla_estimate:
+                    pref_violation_reasons.append(
+                        f"Misses delivery deadline by {comp.delay_days} day(s) (estimated {comp.estimated_delivery_days} days vs target of {advisor_result.preferences.max_delivery_days} days)"
+                    )
+                else:
+                    pref_violation_reasons.append("Delivery estimate is unverified and cannot guarantee target deadline")
+
+    tradeoff_confirmed = True
+    if pref_violation_reasons:
+        with st.container(border=True):
+            st.warning("⚠️ **Notice: Selected Courier Does Not Meet All Your Shipping Preferences**")
+            for r in pref_violation_reasons:
+                st.markdown(f"- ⚠️ {r}")
+            st.caption("You may still proceed with booking this courier, but explicit confirmation is required.")
+            tradeoff_confirmed = st.checkbox(
+                "☑️ I confirm and accept these budget / delivery trade-offs for my shipment",
+                value=st.session_state.get("user_confirmed_preference_tradeoff", False),
+                key="chk_confirm_tradeoff",
+            )
+            st.session_state["user_confirmed_preference_tradeoff"] = tradeoff_confirmed
+
     # One explicit action
     if st.button("🚀 Approve and Create Shipment", type="primary", use_container_width=True, key="btn_approve_and_dispatch"):
+        if pref_violation_reasons and not tradeoff_confirmed:
+            st.error("⛔ Please confirm that you accept the budget/delivery trade-offs above before proceeding to shipment approval.")
+            return
+
         if not ok_m_gate or not ok_p_gate or not ok_d_gate or not svc_ok_gate:
             st.error(f"⛔ Cannot dispatch: {errs_m_gate[0] if not ok_m_gate and errs_m_gate else (err_p_gate or err_d_gate or svc_msg_gate)}")
             return
