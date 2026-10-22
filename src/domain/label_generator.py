@@ -152,6 +152,7 @@ def generate_shipping_label_pdf(
     recipient_phone: str = "—",
     actual_weight_kg: float = 1.0,
     volumetric_weight_kg: Optional[float] = None,
+    volumetric_display: Optional[str] = None,
     billable_weight_kg: Optional[float] = None,
     dimensions_cm: str = "—",
     package_type: str = "Standard Parcel",
@@ -317,8 +318,15 @@ def generate_shipping_label_pdf(
     story.append(Spacer(1, 2))
 
     # ── 6. PACKAGE SPECIFICATIONS ──
-    vol_str = f"{volumetric_weight_kg:.2f} kg" if volumetric_weight_kg else "—"
-    billable_str = f"{billable_weight_kg:.2f} kg" if billable_weight_kg else f"{actual_weight_kg:.2f} kg"
+    if volumetric_display:
+        vol_str = volumetric_display
+    elif volumetric_weight_kg is not None:
+        vol_str = f"{volumetric_weight_kg:.2f} kg"
+    elif dimensions_cm and dimensions_cm != "—":
+        vol_str = "Not configured"
+    else:
+        vol_str = "—"
+    billable_str = f"{billable_weight_kg:.2f} kg" if billable_weight_kg is not None else f"{actual_weight_kg:.2f} kg"
     specs_line = (
         f"<b>Weight:</b> {actual_weight_kg:.2f} kg &nbsp;|&nbsp; "
         f"<b>Volumetric:</b> {vol_str} &nbsp;|&nbsp; "
@@ -406,15 +414,59 @@ def generate_label_from_shipment_context(
 
     # Weight details
     dead_wt = getattr(order, "parcel_weight_kg", 1.0)
-    billed_wt = getattr(quote, "chargeable_weight_kg", None) if quote else None
+    if dead_wt is None:
+        dead_wt = 1.0
+
+    dims = getattr(order, "dimensions", None)
+    dims_str = f"{dims.length_cm:.1f}×{dims.width_cm:.1f}×{dims.height_cm:.1f} cm" if dims else "—"
+
+    is_demo = getattr(shipment_result, "is_demo_data", True)
+    pickup_ref = getattr(pickup_result, "pickup_reference", None) if pickup_result else None
     pkg_type = getattr(order, "packaging_type", "Standard Parcel")
 
-    # If quote has volumetric weight
-    vol_wt = None
-    if quote and hasattr(quote, "breakdown") and quote.breakdown:
-        slab = getattr(quote.breakdown, "chargeable_weight_kg", None)
-        if slab and slab > dead_wt:
-            vol_wt = slab
+    courier_code = (
+        getattr(quote, "courier_code", None)
+        or getattr(shipment_result, "courier_code", None)
+        or ""
+    )
+
+    vol_wt: Optional[float] = None
+    vol_display: Optional[str] = None
+    billed_wt: Optional[float] = None
+
+    # 1. First check if quote carries an audited weight_result
+    weight_res = getattr(quote, "weight_result", None) if quote else None
+    if weight_res:
+        vol_wt = getattr(weight_res, "volumetric_weight_kg", None)
+        billed_wt = getattr(weight_res, "chargeable_weight_kg", None)
+        wr_actual = getattr(weight_res, "actual_weight_kg", None)
+        if wr_actual:
+            dead_wt = wr_actual
+
+    # 2. If volumetric weight is still None, but dimensions exist, calculate via dimension engine
+    if vol_wt is None and dims and getattr(dims, "length_cm", 0) > 0 and getattr(dims, "width_cm", 0) > 0 and getattr(dims, "height_cm", 0) > 0:
+        from src.domain.dimension_engine import OFFICIAL_DOCUMENTED_CAPABILITIES, compute_volumetric_weight
+        rule = OFFICIAL_DOCUMENTED_CAPABILITIES.get(courier_code)
+        if rule and rule.volumetric_rule and rule.volumetric_rule.divisor > 0:
+            divisor = rule.volumetric_rule.divisor
+            vol_wt = compute_volumetric_weight(dims, divisor=divisor)
+            if billed_wt is None:
+                billed_wt = max(dead_wt, vol_wt)
+        else:
+            vol_display = "Not configured"
+            if billed_wt is None:
+                billed_wt = dead_wt
+
+    if vol_wt is not None and vol_display is None:
+        vol_display = f"{vol_wt:.2f} kg"
+
+    if billed_wt is None:
+        if quote and hasattr(quote, "chargeable_weight_kg") and quote.chargeable_weight_kg:
+            billed_wt = quote.chargeable_weight_kg
+        elif vol_wt is not None:
+            billed_wt = max(dead_wt, vol_wt)
+        else:
+            billed_wt = dead_wt
 
     return generate_shipping_label_pdf(
         tracking_number=tracking,
@@ -436,6 +488,7 @@ def generate_label_from_shipment_context(
         recipient_phone=getattr(recipient, "phone", "—") if recipient else "—",
         actual_weight_kg=dead_wt,
         volumetric_weight_kg=vol_wt,
+        volumetric_display=vol_display,
         billable_weight_kg=billed_wt,
         dimensions_cm=dims_str,
         package_type=pkg_type,
@@ -444,4 +497,271 @@ def generate_label_from_shipment_context(
         pickup_reference=pickup_ref,
         is_demo=is_demo,
         page_format=page_format,
+    )
+
+
+def generate_label_preview_html(
+    tracking_number: str,
+    order_reference: str,
+    courier_name: str,
+    service_type: str = "Standard",
+    shipment_id: Optional[str] = None,
+    origin_pin: str = "—",
+    origin_city: str = "Origin Hub",
+    origin_state: str = "IN",
+    destination_pin: str = "—",
+    destination_city: str = "Destination Hub",
+    destination_state: str = "IN",
+    sender_name: str = "Warehouse Logistics Hub",
+    sender_street: str = "Central Fulfillment Facility",
+    sender_phone: str = "—",
+    recipient_name: str = "Recipient Customer",
+    recipient_street: str = "Delivery Address",
+    recipient_phone: str = "—",
+    actual_weight_kg: float = 1.0,
+    volumetric_weight_kg: Optional[float] = None,
+    volumetric_display: Optional[str] = None,
+    billable_weight_kg: Optional[float] = None,
+    dimensions_cm: str = "—",
+    package_type: str = "Standard Parcel",
+    is_cod: bool = False,
+    cod_amount: float = 0.0,
+    created_at_iso: Optional[str] = None,
+    pickup_reference: Optional[str] = None,
+    is_demo: bool = True,
+) -> str:
+    """
+    Generate an authentic, responsive HTML/SVG shipping label card preview.
+    Uses vector SVG for Code128 barcode and QR code to guarantee zero browser blocking.
+    """
+    from reportlab.graphics import renderSVG
+
+    def esc(s: Any) -> str:
+        return html.escape(str(s or "—"))
+
+    # Vector Code128 barcode SVG
+    try:
+        bc_drawing = build_barcode_drawing(tracking_number, max_width=210.0, height=32.0)
+        bc_svg_raw = renderSVG.drawToString(bc_drawing)
+        bc_idx = bc_svg_raw.find("<svg")
+        bc_svg = bc_svg_raw[bc_idx:] if bc_idx != -1 else ""
+    except Exception:
+        bc_svg = f'<div style="font-family: monospace; font-size: 15px; font-weight: bold; letter-spacing: 2px;">||| | |||| | ||| {esc(tracking_number)}</div>'
+
+    # Vector QR code SVG
+    try:
+        qr_payload = f"AWB:{tracking_number}|ORD:{order_reference}|TO:{destination_pin}"
+        qr_drawing = build_qr_drawing(qr_payload, size=46.0)
+        qr_svg_raw = renderSVG.drawToString(qr_drawing)
+        qr_idx = qr_svg_raw.find("<svg")
+        qr_svg = qr_svg_raw[qr_idx:] if qr_idx != -1 else ""
+    except Exception:
+        qr_svg = ""
+
+    date_str = created_at_iso[:16].replace("T", " ") if created_at_iso else datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+
+    # Weight resolution
+    if volumetric_display:
+        vol_str = volumetric_display
+    elif volumetric_weight_kg is not None:
+        vol_str = f"{volumetric_weight_kg:.2f} kg"
+    elif dimensions_cm and dimensions_cm != "—":
+        vol_str = "Not configured"
+    else:
+        vol_str = "—"
+
+    billable_str = f"{billable_weight_kg:.2f} kg" if billable_weight_kg is not None else f"{actual_weight_kg:.2f} kg"
+
+    demo_banner_html = (
+        '<div style="background: #fee2e2; border: 1px solid #ef4444; color: #991b1b; '
+        'font-size: 10px; font-weight: 700; text-align: center; padding: 3px 6px; '
+        'margin-bottom: 8px; border-radius: 4px; letter-spacing: 0.5px;">'
+        'DEMO SHIPMENT — SIMULATED CARRIER LABEL FOR EVALUATION ONLY'
+        '</div>'
+    ) if is_demo else ""
+
+    payment_banner_html = (
+        f'<div style="background: #fee2e2; border: 1.5px solid #dc2626; color: #b91c1c; '
+        f'font-weight: 800; text-align: center; font-size: 11.5px; padding: 5px; '
+        f'border-radius: 4px; margin: 8px 0;">'
+        f'⚠️ COLLECT CASH ON DELIVERY: ₹ {cod_amount:,.2f}'
+        f'</div>'
+    ) if (is_cod and cod_amount > 0) else (
+        '<div style="background: #f0fdf4; border: 1.25px solid #16a34a; color: #15803d; '
+        'font-weight: 800; text-align: center; font-size: 11px; padding: 5px; '
+        'border-radius: 4px; margin: 8px 0;">'
+        '✓ PREPAID SHIPMENT — DO NOT COLLECT CASH'
+        '</div>'
+    )
+
+    shp_ref_str = f"Shipment ID: {esc(shipment_id)} • " if shipment_id else ""
+    pkp_ref_str = f"Pickup Ref: {esc(pickup_reference)} • " if pickup_reference else ""
+
+    return f"""
+<div style="max-width: 490px; margin: 12px auto; background: #ffffff; border: 2px solid #1e293b; border-radius: 8px; padding: 14px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1); line-height: 1.35;">
+  <!-- Header -->
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 6px; margin-bottom: 6px;">
+    <div>
+      <div style="font-size: 15px; font-weight: 900; letter-spacing: 0.5px; color: #0f172a;">{esc(courier_name).upper()}</div>
+      <div style="font-size: 11px; color: #475569;">Ref: {esc(order_reference)}</div>
+    </div>
+    <div style="text-align: right;">
+      <div style="font-size: 11px; font-weight: 800; color: #1e293b;">{esc(service_type).upper()}</div>
+      <div style="font-size: 10px; color: #64748b;">{date_str} UTC</div>
+    </div>
+  </div>
+
+  {demo_banner_html}
+
+  <!-- Routing Strip -->
+  <div style="background: #f1f5f9; border: 1px solid #94a3b8; border-radius: 4px; padding: 5px 8px; font-size: 11.5px; text-align: center; font-weight: 700; color: #1e293b; margin-bottom: 8px;">
+    PIN: {esc(origin_pin)} &nbsp;➔&nbsp; <b>PIN: {esc(destination_pin)}</b> &nbsp;({esc(destination_city).upper()})
+  </div>
+
+  <!-- AWB Title & Barcode / QR -->
+  <div style="text-align: center; margin-bottom: 4px;">
+    <div style="font-size: 14px; font-weight: 900; letter-spacing: 1px; color: #0f172a;">AWB: {esc(tracking_number)}</div>
+  </div>
+  <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 4px 0 8px 0; background: #ffffff; padding: 4px; border: 1px dashed #cbd5e1; border-radius: 4px;">
+    <div style="flex: 1; display: flex; justify-content: center; overflow: hidden;">
+      {bc_svg}
+    </div>
+    <div style="width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+      {qr_svg}
+    </div>
+  </div>
+
+  <!-- Addresses Grid -->
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border: 1px solid #0f172a; border-radius: 4px; padding: 8px; margin-bottom: 8px; background: #ffffff; font-size: 10.5px;">
+    <div style="border-right: 1px solid #e2e8f0; padding-right: 6px;">
+      <div style="font-weight: 800; color: #0f172a; font-size: 10px; text-transform: uppercase; margin-bottom: 2px;">Ship To (Delivery):</div>
+      <div style="font-weight: 700; color: #0f172a;">{esc(recipient_name)}</div>
+      <div style="color: #334155;">{esc(recipient_street)}</div>
+      <div style="color: #334155;">{esc(destination_city)}, {esc(destination_state)} - <b>{esc(destination_pin)}</b></div>
+      <div style="color: #64748b; margin-top: 2px;">Phone: {esc(recipient_phone)}</div>
+    </div>
+    <div style="padding-left: 2px;">
+      <div style="font-weight: 800; color: #0f172a; font-size: 10px; text-transform: uppercase; margin-bottom: 2px;">Return If Undelivered:</div>
+      <div style="font-weight: 700; color: #0f172a;">{esc(sender_name)}</div>
+      <div style="color: #334155;">{esc(sender_street)}</div>
+      <div style="color: #334155;">{esc(origin_city)}, {esc(origin_state)} - <b>{esc(origin_pin)}</b></div>
+      <div style="color: #64748b; margin-top: 2px;">Phone: {esc(sender_phone)}</div>
+    </div>
+  </div>
+
+  <!-- Package Specifications -->
+  <div style="background: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px 8px; font-size: 11px; color: #1e293b; margin-bottom: 6px;">
+    <div><b>Weight:</b> {actual_weight_kg:.2f} kg &nbsp;|&nbsp; <b>Volumetric:</b> {vol_str} &nbsp;|&nbsp; <b>Billed:</b> {billable_str}</div>
+    <div style="margin-top: 2px;"><b>Dimensions:</b> {esc(dimensions_cm)} &nbsp;|&nbsp; <b>Pkg:</b> {esc(package_type)}</div>
+  </div>
+
+  <!-- Payment Status Strip -->
+  {payment_banner_html}
+
+  <!-- Footer -->
+  <div style="text-align: center; font-size: 9px; color: #64748b; margin-top: 6px; padding-top: 4px; border-top: 1px solid #e2e8f0;">
+    {shp_ref_str}{pkp_ref_str}Adaptive Shipping Agent &bull; 5-Point Verified
+  </div>
+</div>
+"""
+
+
+def generate_label_preview_from_shipment_context(
+    order: Any,
+    quote: Any,
+    shipment_result: Any,
+    pickup_result: Optional[Any] = None,
+) -> str:
+    """
+    Convenience wrapper to build an HTML/SVG label preview from domain shipment objects.
+    """
+    tracking = getattr(shipment_result, "tracking_number", "") or "DEMO-TRK-UNKNOWN"
+    shipment_id = getattr(shipment_result, "shipment_id", "")
+    order_ref = getattr(order, "order_reference", "") or "ORD-REF"
+    courier_name = getattr(quote, "courier_name", "") or getattr(shipment_result, "courier_code", "Carrier")
+    service_type = getattr(quote, "service_type", "") or "Standard"
+
+    sender = getattr(order, "sender", None) or getattr(order, "sender_address", None)
+    recipient = getattr(order, "recipient", None) or getattr(order, "recipient_address", None)
+
+    dims = getattr(order, "dimensions", None)
+    dims_str = f"{dims.length_cm:.1f}×{dims.width_cm:.1f}×{dims.height_cm:.1f} cm" if dims else "—"
+
+    is_demo = getattr(shipment_result, "is_demo_data", True)
+    pickup_ref = getattr(pickup_result, "pickup_reference", None) if pickup_result else None
+
+    dead_wt = getattr(order, "parcel_weight_kg", 1.0)
+    if dead_wt is None:
+        dead_wt = 1.0
+
+    courier_code = (
+        getattr(quote, "courier_code", None)
+        or getattr(shipment_result, "courier_code", None)
+        or ""
+    )
+
+    vol_wt: Optional[float] = None
+    vol_display: Optional[str] = None
+    billed_wt: Optional[float] = None
+
+    weight_res = getattr(quote, "weight_result", None) if quote else None
+    if weight_res:
+        vol_wt = getattr(weight_res, "volumetric_weight_kg", None)
+        billed_wt = getattr(weight_res, "chargeable_weight_kg", None)
+        wr_actual = getattr(weight_res, "actual_weight_kg", None)
+        if wr_actual:
+            dead_wt = wr_actual
+
+    if vol_wt is None and dims and getattr(dims, "length_cm", 0) > 0 and getattr(dims, "width_cm", 0) > 0 and getattr(dims, "height_cm", 0) > 0:
+        from src.domain.dimension_engine import OFFICIAL_DOCUMENTED_CAPABILITIES, compute_volumetric_weight
+        rule = OFFICIAL_DOCUMENTED_CAPABILITIES.get(courier_code)
+        if rule and rule.volumetric_rule and rule.volumetric_rule.divisor > 0:
+            divisor = rule.volumetric_rule.divisor
+            vol_wt = compute_volumetric_weight(dims, divisor=divisor)
+            if billed_wt is None:
+                billed_wt = max(dead_wt, vol_wt)
+        else:
+            vol_display = "Not configured"
+            if billed_wt is None:
+                billed_wt = dead_wt
+
+    if vol_wt is not None and vol_display is None:
+        vol_display = f"{vol_wt:.2f} kg"
+
+    if billed_wt is None:
+        if quote and hasattr(quote, "chargeable_weight_kg") and quote.chargeable_weight_kg:
+            billed_wt = quote.chargeable_weight_kg
+        elif vol_wt is not None:
+            billed_wt = max(dead_wt, vol_wt)
+        else:
+            billed_wt = dead_wt
+
+    return generate_label_preview_html(
+        tracking_number=tracking,
+        order_reference=order_ref,
+        courier_name=courier_name,
+        service_type=service_type,
+        shipment_id=shipment_id,
+        origin_pin=getattr(sender, "pin_code", "—") if sender else "—",
+        origin_city=getattr(sender, "city", "Origin Hub") if sender else "Origin Hub",
+        origin_state=getattr(sender, "state", "IN") if sender else "IN",
+        destination_pin=getattr(recipient, "pin_code", "—") if recipient else "—",
+        destination_city=getattr(recipient, "city", "Destination Hub") if recipient else "Destination Hub",
+        destination_state=getattr(recipient, "state", "IN") if recipient else "IN",
+        sender_name=getattr(sender, "name", "Warehouse Logistics Hub") if sender else "Warehouse Logistics Hub",
+        sender_street=getattr(sender, "street_line1", "Central Fulfillment Facility") if sender else "Central Fulfillment Facility",
+        sender_phone=getattr(sender, "phone", "—") if sender else "—",
+        recipient_name=getattr(recipient, "name", "Recipient Customer") if recipient else "Recipient Customer",
+        recipient_street=getattr(recipient, "street_line1", "Delivery Address") if recipient else "Delivery Address",
+        recipient_phone=getattr(recipient, "phone", "—") if recipient else "—",
+        actual_weight_kg=dead_wt,
+        volumetric_weight_kg=vol_wt,
+        volumetric_display=vol_display,
+        billable_weight_kg=billed_wt,
+        dimensions_cm=dims_str,
+        package_type=getattr(order, "packaging_type", "Standard Parcel"),
+        is_cod=getattr(order, "is_cod", False),
+        cod_amount=getattr(order, "cod_amount", 0.0),
+        pickup_reference=pickup_ref,
+        is_demo=is_demo,
     )

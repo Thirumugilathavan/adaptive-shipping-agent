@@ -71,6 +71,7 @@ from src.domain.dimension_engine import (
 )
 from src.domain.label_generator import (
     generate_label_from_shipment_context,
+    generate_label_preview_from_shipment_context,
     generate_shipping_label_pdf,
     sanitize_label_filename,
     is_valid_pdf,
@@ -327,107 +328,107 @@ def render_sidebar():
         sc_id = _map_demo_choice_to_id(demo_choice)
         if sc_id and sc_id in SCENARIO_METADATA:
             meta = SCENARIO_METADATA[sc_id]
-            st.markdown(f"**{meta['full_title']}**")
-            st.caption(meta["description"])
-            st.markdown(f"**Expected:** {meta['expected']}")
+            with st.container(border=True):
+                st.markdown(f"**🎯 {meta['full_title']}**")
+                st.caption(meta["description"])
+                st.markdown(f"**Expected:** {meta['expected']}")
 
-            # Check status of this scenario
-            sc_results = st.session_state.get("scenario_test_results", {})
-            test_res = sc_results.get(sc_id)
-            if test_res:
-                if test_res.status == ScenarioStatus.PASSED:
-                    st.success(f"✅ **Status: {test_res.status.value}**")
-                elif test_res.status == ScenarioStatus.FAILED:
-                    st.error(f"❌ **Status: {test_res.status.value}**")
-                elif test_res.status == ScenarioStatus.ERROR:
-                    st.error(f"⚠️ **Status: {test_res.status.value}**")
+                # Check status of this scenario
+                sc_results = st.session_state.get("scenario_test_results", {})
+                test_res = sc_results.get(sc_id)
+                if test_res:
+                    if test_res.status == ScenarioStatus.PASSED:
+                        st.success(f"✅ **Status: {test_res.status.value}**")
+                    elif test_res.status == ScenarioStatus.FAILED:
+                        st.error(f"❌ **Status: {test_res.status.value}**")
+                    elif test_res.status == ScenarioStatus.ERROR:
+                        st.error(f"⚠️ **Status: {test_res.status.value}**")
+                    else:
+                        st.info(f"⚪ **Status: {test_res.status.value}**")
+
+                    st.caption(f"**Actual:** {test_res.actual_outcome}")
+                    with st.expander("🔍 Inspect Test Evidence & Subcases", expanded=False):
+                        if test_res.subcases:
+                            for sc in test_res.subcases:
+                                icon = "✅" if sc.passed else "❌"
+                                st.markdown(f"**{icon} {sc.subcase_id} — {sc.title}**")
+                                st.caption(f"Actual: {sc.actual}")
+                        st.caption(f"⏱️ Executed in {test_res.execution_time_ms} ms at {test_res.timestamp[:19]}Z")
                 else:
-                    st.info(f"⚪ **Status: {test_res.status.value}**")
+                    st.info("⚪ **Status: NOT RUN**")
 
-                st.caption(f"**Actual:** {test_res.actual_outcome}")
-                with st.expander("🔍 Inspect Test Evidence & Subcases", expanded=False):
-                    if test_res.subcases:
-                        for sc in test_res.subcases:
-                            icon = "✅" if sc.passed else "❌"
-                            st.markdown(f"**{icon} {sc.subcase_id} — {sc.title}**")
-                            st.caption(f"Actual: {sc.actual}")
-                    st.caption(f"⏱️ Executed in {test_res.execution_time_ms} ms at {test_res.timestamp[:19]}Z")
-            else:
-                st.info("⚪ **Status: NOT RUN**")
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    if st.button("🚀 Load", use_container_width=True, help="Load this scenario inputs into the application form", key=f"btn_load_{sc_id.lower()}"):
+                        order_demo = meta["builder"]()
+                        provider = DemoShippingAdapter(couriers=ALL_DEMO_COURIERS)
+                        quotes_demo = provider.get_rates(order_demo)
+                        engine = AgentDecisionEngine()
+                        trace_demo = engine.run_observe(order_demo)
+                        db_svc = get_db()
+                        custom_pkgs_saved = [
+                            CustomPackaging(
+                                packaging_id=r["packaging_id"],
+                                name=r["name"],
+                                package_type=PackageType(r["package_type"]),
+                                outer_dimensions=Dimensions(length_cm=r["outer_length_cm"], width_cm=r["outer_width_cm"], height_cm=r["outer_height_cm"]),
+                                wall_thickness_cm=r["wall_thickness_cm"],
+                                padding_cm=r["padding_cm"],
+                                tare_weight_kg=r["tare_weight_kg"],
+                            )
+                            for r in db_svc.get_custom_packagings()
+                        ]
+                        engine.run_evaluate(order_demo, quotes_demo, trace_demo, custom_packages=custom_pkgs_saved, couriers=ALL_DEMO_COURIERS)
+                        rank_demo = engine.run_decide(quotes_demo, RankingPreferences(mode=RankingMode.LOWEST_COST), trace_demo)
 
-            btn_col1, btn_col2, btn_col3 = st.columns(3)
-            with btn_col1:
-                if st.button("🚀 Load", use_container_width=True, help="Load this scenario inputs into the application form", key=f"btn_load_{sc_id.lower()}"):
-                    order_demo = meta["builder"]()
-                    provider = DemoShippingAdapter(couriers=ALL_DEMO_COURIERS)
-                    quotes_demo = provider.get_rates(order_demo)
-                    engine = AgentDecisionEngine()
-                    trace_demo = engine.run_observe(order_demo)
-                    db_svc = get_db()
-                    custom_pkgs_saved = [
-                        CustomPackaging(
-                            packaging_id=r["packaging_id"],
-                            name=r["name"],
-                            package_type=PackageType(r["package_type"]),
-                            outer_dimensions=Dimensions(length_cm=r["outer_length_cm"], width_cm=r["outer_width_cm"], height_cm=r["outer_height_cm"]),
-                            wall_thickness_cm=r["wall_thickness_cm"],
-                            padding_cm=r["padding_cm"],
-                            tare_weight_kg=r["tare_weight_kg"],
-                        )
-                        for r in db_svc.get_custom_packagings()
-                    ]
-                    engine.run_evaluate(order_demo, quotes_demo, trace_demo, custom_packages=custom_pkgs_saved, couriers=ALL_DEMO_COURIERS)
-                    rank_demo = engine.run_decide(quotes_demo, RankingPreferences(mode=RankingMode.LOWEST_COST), trace_demo)
+                        st.session_state.update({
+                            "order": order_demo,
+                            "quotes": quotes_demo,
+                            "ranking_result": rank_demo,
+                            "selected_quote": rank_demo.selected_winner.quote if rank_demo.selected_winner else None,
+                            "decision_trace": trace_demo,
+                            "active_demo_scenario": demo_choice,
+                            "active_provider_mode": "demo",
+                            "dispatch_result": None,
+                            "recon_result": None,
+                            "approval_given": False,
+                            "approved_record": None,
+                            "approved_proposal_sig": None,
+                            "has_provided_dimensions": True,
+                            "excluded_courier_codes": [],
+                            "_pickup_pin": order_demo.sender.pin_code,
+                            "_delivery_pin": order_demo.recipient.pin_code,
+                            "_parcel_length_cm": order_demo.dimensions.length_cm,
+                            "_parcel_width_cm": order_demo.dimensions.width_cm,
+                            "_parcel_height_cm": order_demo.dimensions.height_cm,
+                            "_parcel_weight_kg": order_demo.parcel_weight_kg,
+                            "form_dim_len": order_demo.dimensions.length_cm,
+                            "form_dim_wid": order_demo.dimensions.width_cm,
+                            "form_dim_hgt": order_demo.dimensions.height_cm,
+                            "form_dim_weight": order_demo.parcel_weight_kg,
+                            "dim_mode_choice": "Direct Packed Parcel Outer Dimensions",
+                            "form_pay_mode": "Cash on Delivery (COD)" if order_demo.is_cod else "Prepaid",
+                            "_cod_amount": order_demo.cod_amount if order_demo.is_cod else 1200.0,
+                            "form_cod_amount": order_demo.cod_amount if order_demo.is_cod else 1200.0,
+                            "_last_seen_measurements": (
+                                order_demo.dimensions.length_cm,
+                                order_demo.dimensions.width_cm,
+                                order_demo.dimensions.height_cm,
+                                order_demo.parcel_weight_kg,
+                            ),
+                        })
+                        st.rerun()
 
-                    st.session_state.update({
-                        "order": order_demo,
-                        "quotes": quotes_demo,
-                        "ranking_result": rank_demo,
-                        "selected_quote": rank_demo.selected_winner.quote if rank_demo.selected_winner else None,
-                        "decision_trace": trace_demo,
-                        "active_demo_scenario": demo_choice,
-                        "active_provider_mode": "demo",
-                        "dispatch_result": None,
-                        "recon_result": None,
-                        "approval_given": False,
-                        "approved_record": None,
-                        "approved_proposal_sig": None,
-                        "has_provided_dimensions": True,
-                        "excluded_courier_codes": [],
-                        "_pickup_pin": order_demo.sender.pin_code,
-                        "_delivery_pin": order_demo.recipient.pin_code,
-                        "_parcel_length_cm": order_demo.dimensions.length_cm,
-                        "_parcel_width_cm": order_demo.dimensions.width_cm,
-                        "_parcel_height_cm": order_demo.dimensions.height_cm,
-                        "_parcel_weight_kg": order_demo.parcel_weight_kg,
-                        "form_dim_len": order_demo.dimensions.length_cm,
-                        "form_dim_wid": order_demo.dimensions.width_cm,
-                        "form_dim_hgt": order_demo.dimensions.height_cm,
-                        "form_dim_weight": order_demo.parcel_weight_kg,
-                        "dim_mode_choice": "Direct Packed Parcel Outer Dimensions",
-                        "form_pay_mode": "Cash on Delivery (COD)" if order_demo.is_cod else "Prepaid",
-                        "_cod_amount": order_demo.cod_amount if order_demo.is_cod else 1200.0,
-                        "form_cod_amount": order_demo.cod_amount if order_demo.is_cod else 1200.0,
-                        "_last_seen_measurements": (
-                            order_demo.dimensions.length_cm,
-                            order_demo.dimensions.width_cm,
-                            order_demo.dimensions.height_cm,
-                            order_demo.parcel_weight_kg,
-                        ),
-                    })
-                    st.rerun()
+                with btn_col2:
+                    if st.button("🧪 Run Test", use_container_width=True, type="primary", help="Execute the deterministic test", key=f"btn_run_{sc_id.lower()}"):
+                        suite = EvaluatorSuite(get_db())
+                        res = suite.run_scenario(sc_id)
+                        if "scenario_test_results" not in st.session_state:
+                            st.session_state["scenario_test_results"] = {}
+                        st.session_state["scenario_test_results"][sc_id] = res
+                        st.rerun()
 
-            with btn_col2:
-                if st.button("🧪 Run", use_container_width=True, type="primary", help="Execute the deterministic test", key=f"btn_run_{sc_id.lower()}"):
-                    suite = EvaluatorSuite(get_db())
-                    res = suite.run_scenario(sc_id)
-                    if "scenario_test_results" not in st.session_state:
-                        st.session_state["scenario_test_results"] = {}
-                    st.session_state["scenario_test_results"][sc_id] = res
-                    st.rerun()
-
-            with btn_col3:
-                if st.button("🔄 Reset", use_container_width=True, help="Reset evaluator state for this scenario", key=f"btn_reset_{sc_id.lower()}"):
+                if st.button("🔄 Reset Scenario", use_container_width=True, help="Reset evaluator state for this scenario", key=f"btn_reset_{sc_id.lower()}"):
                     if "scenario_test_results" in st.session_state and sc_id in st.session_state["scenario_test_results"]:
                         del st.session_state["scenario_test_results"][sc_id]
                     st.session_state["active_demo_scenario"] = "None (Manual Input)"
@@ -1614,10 +1615,28 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
 
     is_demo = getattr(selected_quote, "is_demo_data", True)
     awb_label = "AWB / Tracking (DEMO)" if is_demo else "AWB / Tracking (ShipEngine Sandbox)"
+
+    dead_wt = getattr(order, "parcel_weight_kg", 1.0)
+    billed_wt = None
+    vol_wt = None
+    if selected_quote and getattr(selected_quote, "weight_result", None):
+        wr = selected_quote.weight_result
+        dead_wt = getattr(wr, "actual_weight_kg", dead_wt)
+        vol_wt = getattr(wr, "volumetric_weight_kg", None)
+        billed_wt = getattr(wr, "chargeable_weight_kg", None)
+    elif order.dimensions:
+        rule = OFFICIAL_DOCUMENTED_CAPABILITIES.get(getattr(selected_quote, "courier_code", ""))
+        if rule and rule.volumetric_rule and rule.volumetric_rule.divisor > 0:
+            vol_wt = (order.dimensions.length_cm * order.dimensions.width_cm * order.dimensions.height_cm) / rule.volumetric_rule.divisor
+            billed_wt = max(dead_wt, vol_wt)
+    if billed_wt is None:
+        billed_wt = dead_wt
+
     m1, m2, m3, m4 = st.columns(4)
     m1.metric(awb_label, dispatch_result.tracking_number or "N/A")
-    m2.metric("Shipment ID", dispatch_result.shipment_id)
-    m3.metric("Courier", selected_quote.courier_name)
+    m2.metric("Courier & Service", f"{selected_quote.courier_name}")
+    wt_delta = f"Actual: {dead_wt:.2f} kg" if vol_wt and vol_wt > dead_wt else None
+    m3.metric("Billed Weight", f"{billed_wt:.2f} kg", delta=wt_delta, delta_color="inverse")
     m4.metric("Verification Status", "✅ VERIFIED")
 
     # Carrier Pickup Schedule
@@ -1635,15 +1654,16 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
 
     # ── PDF Label Generation & Download ──
     st.divider()
-    st.subheader("🏷️ Download Shipping Label")
+    st.subheader("🏷️ Shipping Label")
+    st.caption("Print-ready carrier shipping label formatted with verified routing, specifications, vector Code128 barcode, and 2D QR code.")
 
-    col_fmt, _ = st.columns([2, 3])
+    col_fmt, col_btn = st.columns([1, 2])
     with col_fmt:
         label_fmt_label = st.radio(
             "Paper Size / Format",
             options=["A6 Compact (105 × 148 mm)", "4 × 6 inches (102 × 152 mm) Thermal"],
             index=0,
-            horizontal=True,
+            horizontal=False,
             key="ready_page_format_choice",
         )
     page_format_val = "4x6" if "4 × 6" in label_fmt_label else "A6"
@@ -1662,31 +1682,33 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
 
     clean_awb = sanitize_label_filename(dispatch_result.tracking_number, extension="pdf")
 
-    if pdf_bytes and is_valid_pdf(pdf_bytes):
-        st.download_button(
-            label="📥 Download Printable PDF Shipping Label",
-            data=pdf_bytes,
-            file_name=clean_awb,
-            mime="application/pdf",
-            type="primary",
-            use_container_width=True,
-            key="btn_download_pdf_ready",
-        )
+    with col_btn:
+        st.write("")
+        if pdf_bytes and is_valid_pdf(pdf_bytes):
+            st.download_button(
+                label=f"📥 Download Printable PDF Shipping Label ({page_format_val})",
+                data=pdf_bytes,
+                file_name=clean_awb,
+                mime="application/pdf",
+                type="primary",
+                use_container_width=True,
+                key="btn_download_pdf_ready",
+            )
 
         if dispatch_result.label_data and str(dispatch_result.label_data).startswith("http"):
             st.link_button("🌐 Open Official ShipEngine Carrier Label (PDF)", str(dispatch_result.label_data), use_container_width=True)
 
-        with st.expander("👁️ View Live PDF Shipping Label Preview", expanded=True):
-            try:
-                b64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
-                pdf_display = (
-                    f'<iframe src="data:application/pdf;base64,{b64_pdf}#toolbar=0&navpanes=0&scrollbar=0" '
-                    f'width="100%" height="520" type="application/pdf" '
-                    f'style="border: 1.5px solid #CBD5E1; border-radius: 8px; background: white;"></iframe>'
-                )
-                st.markdown(pdf_display, unsafe_allow_html=True)
-            except Exception as ex:
-                st.caption(f"Preview unavailable: {ex}. Click the button above to download and open the PDF.")
+    with st.expander("👁️ View Live Shipping Label Preview", expanded=True):
+        try:
+            preview_html = generate_label_preview_from_shipment_context(
+                order=order,
+                quote=selected_quote,
+                shipment_result=dispatch_result,
+                pickup_result=pickup_res,
+            )
+            st.markdown(preview_html, unsafe_allow_html=True)
+        except Exception as ex:
+            st.caption(f"Preview unavailable: {ex}. Please use the download button above to retrieve the PDF label.")
 
     st.divider()
     if st.button("🔄 Ship Another Parcel", use_container_width=True):

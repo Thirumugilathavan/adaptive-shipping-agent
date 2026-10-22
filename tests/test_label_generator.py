@@ -8,6 +8,8 @@ from src.domain.label_generator import (
     build_barcode_drawing,
     build_qr_drawing,
     generate_label_from_shipment_context,
+    generate_label_preview_from_shipment_context,
+    generate_label_preview_html,
     generate_shipping_label_pdf,
     is_valid_pdf,
     sanitize_label_filename,
@@ -18,6 +20,7 @@ from src.domain.models import (
     CourierQuote,
     Dimensions,
     OrderInput,
+    WeightResult,
 )
 from src.providers.base import PickupResult, ShipmentResult
 from src.providers.demo_adapter import DemoShippingAdapter
@@ -239,3 +242,180 @@ def test_demo_adapter_generate_label_pdf(sample_order, sample_quote):
     assert pdf is not None
     assert is_valid_pdf(pdf)
     assert len(pdf) > 2000
+
+
+def test_volumetric_weight_calculation_and_display():
+    """
+    Verify volumetric weight calculation with example 65 × 30 × 20 cm:
+    Volume = 39,000 cm3; Divisor 5,000 cm3/kg -> Volumetric = 7.80 kg, Billed = 7.80 kg.
+    """
+    pdf = generate_shipping_label_pdf(
+        tracking_number="DEMO-TRK-VOL-001",
+        order_reference="ORD-VOL-65X30X20",
+        courier_name="Demo Air Express (Simulated)",
+        actual_weight_kg=0.50,
+        volumetric_weight_kg=7.80,
+        billable_weight_kg=7.80,
+        dimensions_cm="65.0×30.0×20.0 cm",
+        page_format=LabelPageFormat.A6,
+    )
+    assert is_valid_pdf(pdf)
+
+    # Verify in HTML preview replica
+    html = generate_label_preview_html(
+        tracking_number="DEMO-TRK-VOL-001",
+        order_reference="ORD-VOL-65X30X20",
+        courier_name="Demo Air Express (Simulated)",
+        actual_weight_kg=0.50,
+        volumetric_weight_kg=7.80,
+        billable_weight_kg=7.80,
+        dimensions_cm="65.0×30.0×20.0 cm",
+    )
+    assert "<b>Weight:</b> 0.50 kg" in html
+    assert "<b>Volumetric:</b> 7.80 kg" in html
+    assert "<b>Billed:</b> 7.80 kg" in html
+    assert "65.0×30.0×20.0 cm" in html
+
+
+def test_unconfigured_carrier_volumetric_weight_display():
+    """
+    If carrier has no verified divisor, do not assume universal divisor;
+    display 'Not configured' instead of '—'.
+    """
+    pdf = generate_shipping_label_pdf(
+        tracking_number="DEMO-TRK-UNCONF-001",
+        order_reference="ORD-UNCONF",
+        courier_name="Unconfigured Regional Courier",
+        actual_weight_kg=0.50,
+        volumetric_weight_kg=None,
+        volumetric_display="Not configured",
+        billable_weight_kg=0.50,
+        dimensions_cm="65.0×30.0×20.0 cm",
+    )
+    assert is_valid_pdf(pdf)
+
+    html = generate_label_preview_html(
+        tracking_number="DEMO-TRK-UNCONF-001",
+        order_reference="ORD-UNCONF",
+        courier_name="Unconfigured Regional Courier",
+        actual_weight_kg=0.50,
+        volumetric_weight_kg=None,
+        volumetric_display="Not configured",
+        billable_weight_kg=0.50,
+        dimensions_cm="65.0×30.0×20.0 cm",
+    )
+    assert "<b>Weight:</b> 0.50 kg" in html
+    assert "<b>Volumetric:</b> Not configured" in html
+    assert "<b>Billed:</b> 0.50 kg" in html
+
+
+def test_label_preview_html_structure_and_svg():
+    """
+    Verify that generate_label_preview_html produces responsive HTML with
+    vector Code128 barcode SVG and QR code SVG, without iframe embed tags.
+    """
+    html = generate_label_preview_html(
+        tracking_number="DEMO-TRK-PREVIEW-TEST",
+        order_reference="ORD-PREVIEW-001",
+        courier_name="Blue Dart Express Air",
+        service_type="Air Express Priority",
+        origin_pin="560103",
+        destination_pin="411001",
+        actual_weight_kg=1.5,
+        volumetric_weight_kg=3.2,
+        billable_weight_kg=3.2,
+        dimensions_cm="30.0×25.0×20.0 cm",
+        is_cod=True,
+        cod_amount=1500.0,
+        is_demo=True,
+    )
+    # Must not contain iframe (which gets blocked by Edge / Chromium)
+    assert "<iframe" not in html
+    # Must contain vector SVGs
+    assert "<svg" in html
+    assert "</svg>" in html
+    # Must contain tracking number and routing
+    assert "AWB: DEMO-TRK-PREVIEW-TEST" in html
+    assert "560103" in html
+    assert "411001" in html
+    assert "COLLECT CASH ON DELIVERY: ₹ 1,500.00" in html
+    assert "DEMO SHIPMENT — SIMULATED CARRIER LABEL FOR EVALUATION ONLY" in html
+
+
+def test_generate_label_from_shipment_context_weight_result_separation():
+    """
+    Verify generate_label_from_shipment_context reads quote.weight_result
+    and keeps actual weight, volumetric weight, and chargeable weight clearly separated.
+    """
+    order = OrderInput(
+        order_reference="ORD-SEPARATE-WT",
+        parcel_weight_kg=0.50,
+        dimensions=Dimensions(length_cm=65.0, width_cm=30.0, height_cm=20.0),
+        sender=Address(name="Sender Hub", phone="9876543210", street_line1="Industrial Area", city="Bangalore", state="KA", pin_code="560100"),
+        recipient=Address(name="Customer", phone="9123456780", street_line1="Commercial Park", city="Pune", state="MH", pin_code="411001"),
+    )
+    quote = CourierQuote(
+        quote_id="Q-TEST-SEPARATE",
+        courier_code="DEMO_AIR_EXPRESS",
+        courier_name="Demo Air Express (Simulated)",
+        service_type="Air Express Priority",
+        input_hash="hash-sep",
+        weight_result=WeightResult(
+            actual_weight_kg=0.50,
+            volumetric_weight_kg=7.80,
+            chargeable_weight_kg=7.80,
+            billing_slab_kg=8.0,
+            divisor_used=5000.0,
+            is_volumetric_penalty=True,
+        ),
+    )
+    shp = ShipmentResult(
+        shipment_id="SHP-TEST-SEP",
+        order_reference="ORD-SEPARATE-WT",
+        courier_code="DEMO_AIR_EXPRESS",
+        tracking_number="DEMO-TRK-SEP-001",
+        is_demo_data=True,
+    )
+
+    pdf = generate_label_from_shipment_context(order, quote, shp)
+    assert is_valid_pdf(pdf)
+
+    preview = generate_label_preview_from_shipment_context(order, quote, shp)
+    assert "<b>Weight:</b> 0.50 kg" in preview
+    assert "<b>Volumetric:</b> 7.80 kg" in preview
+    assert "<b>Billed:</b> 7.80 kg" in preview
+
+
+def test_generate_label_from_shipment_context_fallback_divisor_calculation():
+    """
+    When quote has no weight_result, calculate volumetric weight via dimension engine
+    using carrier's documented capability divisor (e.g. 5000 for DEMO_AIR_EXPRESS).
+    """
+    order = OrderInput(
+        order_reference="ORD-FALLBACK-WT",
+        parcel_weight_kg=0.50,
+        dimensions=Dimensions(length_cm=65.0, width_cm=30.0, height_cm=20.0),
+        sender=Address(name="Sender Hub", phone="9876543210", street_line1="Industrial Area", city="Bangalore", state="KA", pin_code="560100"),
+        recipient=Address(name="Customer", phone="9123456780", street_line1="Commercial Park", city="Pune", state="MH", pin_code="411001"),
+    )
+    quote = CourierQuote(
+        quote_id="Q-TEST-FALLBACK",
+        courier_code="DEMO_AIR_EXPRESS",
+        courier_name="Demo Air Express (Simulated)",
+        service_type="Air Express Priority",
+        input_hash="hash-fb",
+        weight_result=None,
+    )
+    shp = ShipmentResult(
+        shipment_id="SHP-TEST-FB",
+        order_reference="ORD-FALLBACK-WT",
+        courier_code="DEMO_AIR_EXPRESS",
+        tracking_number="DEMO-TRK-FB-001",
+        is_demo_data=True,
+    )
+
+    preview = generate_label_preview_from_shipment_context(order, quote, shp)
+    assert "<b>Weight:</b> 0.50 kg" in preview
+    assert "<b>Volumetric:</b> 7.80 kg" in preview
+    assert "<b>Billed:</b> 7.80 kg" in preview
+
