@@ -105,6 +105,7 @@ class PackagingComparisonResult(BaseModel):
     courier_status_summary: str = "Courier size eligibility not verified"
     courier_reports: Dict[str, Any] = Field(default_factory=dict)
     tare_weight_kg: float = 0.05
+    new_gross_weight_kg: float = 0.0
     disclaimer: str = "DEMO PACKAGING EVALUATION: Non-binding simulation."
 
 
@@ -423,6 +424,7 @@ def evaluate_packaging_alternatives(
                     courier_status_summary=courier_summary,
                     courier_reports=demo_reports,
                     tare_weight_kg=option.tare_weight_kg,
+                    new_gross_weight_kg=new_gross_weight,
                 )
             )
         else:
@@ -449,6 +451,7 @@ def evaluate_packaging_alternatives(
                     courier_eligibility=courier_el,
                     courier_status_summary=courier_summary,
                     tare_weight_kg=option.tare_weight_kg,
+                    new_gross_weight_kg=new_gross_weight,
                 )
             )
 
@@ -510,6 +513,7 @@ def evaluate_packaging_alternatives(
                     courier_status_summary=courier_summary,
                     courier_reports=cust_reports,
                     tare_weight_kg=c_pkg.tare_weight_kg,
+                    new_gross_weight_kg=new_gross_weight,
                 )
             )
         else:
@@ -536,6 +540,7 @@ def evaluate_packaging_alternatives(
                     courier_eligibility=courier_el,
                     courier_status_summary=courier_summary,
                     tare_weight_kg=c_pkg.tare_weight_kg,
+                    new_gross_weight_kg=new_gross_weight,
                 )
             )
 

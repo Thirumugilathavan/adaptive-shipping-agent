@@ -135,6 +135,13 @@ class CourierProvider(ABC):
         """
         return None
 
+    def generate_label_pdf(self, shipment_id: str, **kwargs) -> Optional[bytes]:
+        """
+        Generate or fetch shipping label PDF bytes.
+        Default implementation returns None if provider does not support PDF labels.
+        """
+        return None
+
     def lookup_shipment_by_reference(self, order_reference: str) -> Optional[ShipmentResult]:
         """
         Query provider for an existing shipment created under this order reference.
@@ -142,3 +149,13 @@ class CourierProvider(ABC):
         Default implementation returns None if provider does not support reference-based lookup.
         """
         return None
+
+    def check_route_serviceability(
+        self, origin_pin: str, dest_pin: str
+    ) -> tuple[bool, str, bool]:
+        """
+        Check route serviceability for origin and destination PIN codes.
+        Returns (is_serviceable, explanation_or_error_message, is_demo_data).
+        """
+        return True, "", self.is_demo
+

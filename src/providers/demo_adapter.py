@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from datetime import datetime, timezone
 from typing import List, Optional
 from pydantic import BaseModel
@@ -429,6 +430,44 @@ class DemoShippingAdapter(CourierProvider):
     def is_demo(self) -> bool:
         return True
 
+    def check_route_serviceability(
+        self, origin_pin: str, dest_pin: str
+    ) -> tuple[bool, str, bool]:
+        """
+        Verify route serviceability against demo carrier network capability rules.
+        Returns (is_serviceable, message, is_demo_data).
+        """
+        origin = origin_pin.strip() if origin_pin else ""
+        dest = dest_pin.strip() if dest_pin else ""
+
+        # Validate format first
+        if not origin or not re.fullmatch(r"^[1-9]\d{5}$", origin):
+            return False, "Enter a valid 6-digit pickup PIN code (must be exactly 6 digits).", True
+
+        if not dest or not re.fullmatch(r"^[1-9]\d{5}$", dest):
+            return False, "Enter a valid 6-digit delivery PIN code (must be exactly 6 digits).", True
+
+        # In Indian postal system, Circle 9 (900000-999999) is Army Postal Service (APS)
+        # Commercial civilian couriers cannot provide civilian pickup or delivery to APS PINs.
+        if origin.startswith("9"):
+            return False, "This pickup PIN code could not be verified. Please check it or enter a supported PIN code.", True
+
+        if dest.startswith("9"):
+            return False, "Delivery to this PIN code is currently unavailable. Please check the PIN code or try another supported destination.", True
+
+        # Check if at least one configured courier can service this destination PIN
+        serviceable_count = 0
+        for cfg in self._couriers:
+            p_blocked = any(dest.startswith(p) for p in cfg.blocked_destination_pin_prefixes)
+            s_blocked = any(dest.endswith(s) for s in cfg.blocked_destination_pin_suffixes)
+            if not p_blocked and not s_blocked:
+                serviceable_count += 1
+
+        if serviceable_count == 0:
+            return False, "Delivery to this PIN code is currently unavailable. Please check the PIN code or try another supported destination.", True
+
+        return True, f"Route PIN {origin} ➔ PIN {dest} serviceable across {serviceable_count} courier(s) in demo network.", True
+
     def _generate_input_hash(self, order: OrderInput) -> str:
         raw = (
             f"{order.order_reference}:{order.dimensions.volume_cm3}:"
@@ -789,6 +828,46 @@ class DemoShippingAdapter(CourierProvider):
 </body>
 </html>"""
         return label_html
+
+    def generate_label_pdf(
+        self,
+        shipment_id: str,
+        tracking_number: Optional[str] = None,
+        order: Optional[OrderInput] = None,
+        quote: Optional[CourierQuote] = None,
+        page_format: str = "A6",
+    ) -> Optional[bytes]:
+        """
+        Generate a genuine, printable PDF shipping label using ReportLab.
+        """
+        ord_obj = order or getattr(self, "_shipment_orders", {}).get(shipment_id)
+        q_obj = quote or getattr(self, "_shipment_quotes", {}).get(shipment_id)
+
+        # Lookup from created shipments if not passed
+        if ord_obj is None:
+            for ref, shp in self._created_shipments.items():
+                if shp.shipment_id == shipment_id:
+                    tracking_number = shp.tracking_number
+                    break
+
+        trk = tracking_number or "DEMO-TRK-UNKNOWN"
+
+        from src.domain.label_generator import generate_label_from_shipment_context
+        shp_mock = ShipmentResult(
+            shipment_id=shipment_id,
+            order_reference=ord_obj.order_reference if ord_obj else "—",
+            courier_code=q_obj.courier_code if q_obj else "DEMO",
+            tracking_number=trk,
+            is_demo_data=True,
+        )
+        pickup_res = getattr(self, "_scheduled_pickups", {}).get(shipment_id)
+        return generate_label_from_shipment_context(
+            order=ord_obj,
+            quote=q_obj,
+            shipment_result=shp_mock,
+            pickup_result=pickup_res,
+            page_format=page_format,
+        )
 
     def schedule_pickup(self, shipment_id: str) -> Optional[PickupResult]:
         """

@@ -32,14 +32,42 @@ from src.domain.ranking import RankingResult, RankedCourierQuote
 # Input Validation Helpers
 # ---------------------------------------------------------------------------
 
-def validate_pin_code(pin: str) -> tuple[bool, str]:
-    """Return (is_valid, error_message). Empty error = ok."""
-    cleaned = pin.strip()
+def validate_pin_code(pin: str, pin_type: str = "") -> tuple[bool, str]:
+    """
+    Validate Indian postal PIN code format.
+    Must be exactly 6 numeric digits starting with 1-9.
+    Return (is_valid, error_message). Empty error = ok.
+    """
+    cleaned = pin.strip() if pin else ""
+    type_str = f"{pin_type.strip()} " if pin_type else ""
     if not cleaned:
-        return False, "PIN code is required."
-    if not re.fullmatch(r"^\d{6}$", cleaned):
-        return False, f"PIN code must be exactly 6 digits (got '{cleaned}')."
+        return False, f"PIN code is required. Enter a valid 6-digit {type_str}PIN code (must be exactly 6 digits).".replace("  ", " ")
+    if not re.fullmatch(r"^[1-9]\d{5}$", cleaned):
+        return False, f"Enter a valid 6-digit {type_str}PIN code (must be exactly 6 digits).".replace("  ", " ")
     return True, ""
+
+
+def verify_route_serviceability(
+    origin_pin: str,
+    dest_pin: str,
+    provider: Optional[Any] = None,
+) -> tuple[bool, str, bool]:
+    """
+    Validate PIN formats and verify route serviceability against provider network capability rules.
+    Returns (is_valid_and_serviceable, explanation_or_error, is_demo_data).
+    """
+    ok_p, err_p = validate_pin_code(origin_pin, pin_type="pickup")
+    if not ok_p:
+        return False, err_p, True
+
+    ok_d, err_d = validate_pin_code(dest_pin, pin_type="delivery")
+    if not ok_d:
+        return False, err_d, True
+
+    if provider is not None and hasattr(provider, "check_route_serviceability"):
+        return provider.check_route_serviceability(origin_pin, dest_pin)
+
+    return True, "", True
 
 
 def validate_phone(phone: str) -> tuple[bool, str]:
@@ -276,3 +304,38 @@ def describe_ranking_result(result: RankingResult) -> str:
         parts.append(f"**Cost margin over runner-up:** {fmt_inr(result.cost_margin_over_runner_up)}")
     parts.append(f"\n_{result.decision_explanation}_")
     return "  \n".join(parts)
+
+
+def friendly_courier_status(quote: CourierQuote, is_winner: bool = False) -> tuple[str, str, str]:
+    """
+    Map courier quote eligibility to understandable user-facing status labels.
+    Returns (status_label, badge_colour, short_explanation).
+    """
+    if is_winner:
+        return "Recommended", "green", "Best verified option matching your delivery and cost preferences."
+
+    if not quote.is_serviceable or not quote.is_eligible:
+        reason = quote.unserviceable_reason or "Exceeds courier size or regional route restriction."
+        return "Not available for this parcel", "red", reason
+
+    if quote.cost_breakdown is None:
+        return "Price unavailable", "gray", "Carrier did not provide pricing for this route/weight."
+
+    el_status = getattr(quote, "eligibility_status", "ELIGIBLE")
+    if el_status in ("UNVERIFIED", "PENDING"):
+        return "Needs verification", "orange", "Carrier size limits or regional route unconfirmed. Requires verification."
+
+    return "Eligible", "blue", "Eligible and ready for dispatch."
+
+
+def format_packaging_recommendation(box_name: str, savings_inr: float = 0.0, reason: str = "") -> str:
+    """Format an automatic packaging recommendation in plain language."""
+    msg = f"**Recommended packaging:** {box_name}"
+    if reason:
+        msg += f"  \n*Why:* {reason}"
+    elif savings_inr > 0:
+        msg += f"  \n*Why:* Fits the parcel safely while saving approximately {fmt_inr(savings_inr)} in volumetric freight."
+    else:
+        msg += "  \n*Why:* Fits the parcel snugly while reducing unused space and dimensional charges."
+    return msg
+

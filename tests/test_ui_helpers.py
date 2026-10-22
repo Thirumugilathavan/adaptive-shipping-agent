@@ -28,8 +28,10 @@ from src.ui.helpers import (
     fmt_age,
     format_audit_event,
     format_cost_breakdown,
+    format_packaging_recommendation,
     format_weight_breakdown,
     freshness_badge,
+    friendly_courier_status,
     quote_source_badge,
     shipment_status_colour,
     validate_order_reference,
@@ -397,6 +399,50 @@ class TestDemoDataLabelling:
         """Verify the is_demo_data field that our UI reads is correctly set."""
         quote = make_dummy_quote(is_demo=True)
         assert quote.is_demo_data is True
+
+
+class TestFriendlyCourierStatusAndPackaging:
+    def test_winner_status(self):
+        quote = make_dummy_quote()
+        label, colour, explanation = friendly_courier_status(quote, is_winner=True)
+        assert label == "Recommended"
+        assert colour == "green"
+        assert "Best verified option" in explanation
+
+    def test_eligible_status(self):
+        quote = make_dummy_quote()
+        label, colour, explanation = friendly_courier_status(quote, is_winner=False)
+        assert label == "Eligible"
+        assert colour == "blue"
+
+    def test_ineligible_status(self):
+        quote = make_dummy_quote()
+        quote.is_eligible = False
+        quote.unserviceable_reason = "Remote PIN unserviceable"
+        label, colour, explanation = friendly_courier_status(quote)
+        assert label == "Not available for this parcel"
+        assert colour == "red"
+        assert "Remote PIN unserviceable" in explanation
+
+    def test_unverified_status(self):
+        quote = make_dummy_quote()
+        quote.eligibility_status = "UNVERIFIED"
+        label, colour, explanation = friendly_courier_status(quote)
+        assert label == "Needs verification"
+        assert colour == "orange"
+
+    def test_price_unavailable_status(self):
+        quote = make_dummy_quote()
+        quote.cost_breakdown = None
+        label, colour, explanation = friendly_courier_status(quote)
+        assert label == "Price unavailable"
+        assert colour == "gray"
+
+    def test_packaging_recommendation_formatter(self):
+        msg = format_packaging_recommendation("Demo Medium Box", savings_inr=45.50)
+        assert "Recommended packaging:** Demo Medium Box" in msg
+        assert "INR 45.50" in msg
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────

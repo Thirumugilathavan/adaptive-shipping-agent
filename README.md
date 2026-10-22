@@ -2,7 +2,7 @@
 > **Autonomous, Constraint-Aware Logistics Decision Support & Execution Gate Engine**  
 > *Category:* Business & Productivity AI — ZiroDigital Agentic AI Hackathon 2026  
 > *Live Entrypoint:* `python -m streamlit run src/ui/app.py`  
-> *Test Suite:* `python -m pytest tests/` (145/145 Passing) | `python run_official_scenarios.py` (4/4 Passing)
+> *Test Suite:* `python -m pytest tests/` (192/192 Passing) | `python run_official_scenarios.py` (4/4 Passing)
 
 ---
 
@@ -77,7 +77,7 @@ Every shipment processed by the agent traverses an explicit, immutable decision 
 
 [Stage F: Verify & Reconcile]
   ├── Independent 5-point verification (AWB, Order Match, Label, Pickup, Cost)
-  ├── Generate printable HTML shipping labels with barcodes
+  ├── Generate printable PDF (A6 / 4x6 thermal) & HTML shipping labels with Code128 barcodes & 2D QR codes
   └── Confirm carrier pickup schedule and warehouse handover window
 ```
 

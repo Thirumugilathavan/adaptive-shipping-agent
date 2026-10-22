@@ -1,5 +1,7 @@
-﻿streamlit
+streamlit
 pydantic
 python-dotenv
 pytest
 requests
+reportlab
+httpx

@@ -122,13 +122,27 @@ class ShipmentVerificationService:
 
         if label_status_val in ("AVAILABLE_URL", "AVAILABLE_PDF", "AVAILABLE_HTML") and label_data:
             # Check if label content or metadata references the AWB and order
-            if awb_val and (awb_val in label_data or order.order_reference in label_data):
-                label_valid = True
-                label_status = VerificationStatus.VERIFIED
-                label_details = "Label content verified: Contains valid references to AWB and Order Reference."
+            if isinstance(label_data, bytes):
+                awb_b = (awb_val or "").encode("utf-8", errors="ignore")
+                ref_b = order.order_reference.encode("utf-8", errors="ignore")
+                if (awb_b and awb_b in label_data) or (ref_b in label_data):
+                    label_valid = True
+                    label_status = VerificationStatus.VERIFIED
+                    label_details = "Label PDF content verified: Contains valid references to AWB and Order Reference."
+                else:
+                    label_status = VerificationStatus.FAILED
+                    label_details = "Label returned but fails correlation check against AWB / Order."
+            elif isinstance(label_data, str):
+                if awb_val and (awb_val in label_data or order.order_reference in label_data):
+                    label_valid = True
+                    label_status = VerificationStatus.VERIFIED
+                    label_details = "Label content verified: Contains valid references to AWB and Order Reference."
+                else:
+                    label_status = VerificationStatus.FAILED
+                    label_details = "Label returned but fails correlation check against AWB / Order."
             else:
                 label_status = VerificationStatus.FAILED
-                label_details = "Label returned but fails correlation check against AWB / Order."
+                label_details = "Label data returned in unrecognized type."
         elif label_status_val == "UNSUPPORTED":
             label_status = VerificationStatus.UNVERIFIED
             label_details = "Carrier provider does not support automated label generation in current mode."
