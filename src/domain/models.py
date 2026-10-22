@@ -9,7 +9,8 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+import math
+from typing import Any, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -93,6 +94,24 @@ class Dimensions(BaseModel):
     width_cm: float = Field(..., gt=0.0, le=500.0, description="Width in centimeters")
     height_cm: float = Field(..., gt=0.0, le=500.0, description="Height in centimeters")
 
+    @field_validator("length_cm", "width_cm", "height_cm", mode="before")
+    @classmethod
+    def validate_dimension_scalar(cls, v: Any, info) -> float:
+        field_label = info.field_name.replace("_cm", "")
+        if v is None:
+            raise ValueError(f"Please enter the parcel {field_label}.")
+        try:
+            val = float(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"Parcel {field_label} must be a valid number.")
+        if math.isnan(val) or math.isinf(val):
+            raise ValueError(f"Parcel {field_label} must be a finite number.")
+        if val <= 0.0:
+            raise ValueError(f"Parcel {field_label} must be greater than zero (greater than 0).")
+        if val > 500.0:
+            raise ValueError(f"Parcel {field_label} exceeds allowed maximum (500.0 cm).")
+        return val
+
     @property
     def volume_cm3(self) -> float:
         """Calculate volumetric volume in cubic centimeters."""
@@ -112,6 +131,23 @@ class OrderInput(BaseModel):
     sender: Address
     recipient: Address
     parcel_weight_kg: float = Field(..., gt=0.0, le=1000.0, description="Actual physical gross weight in kg")
+
+    @field_validator("parcel_weight_kg", mode="before")
+    @classmethod
+    def validate_weight_scalar(cls, v: Any) -> float:
+        if v is None:
+            raise ValueError("Please enter the actual parcel weight.")
+        try:
+            val = float(v)
+        except (TypeError, ValueError):
+            raise ValueError("Actual parcel weight must be a valid number.")
+        if math.isnan(val) or math.isinf(val):
+            raise ValueError("Actual parcel weight must be a finite number.")
+        if val <= 0.0:
+            raise ValueError("Actual parcel weight must be greater than zero (greater than 0).")
+        if val > 1000.0:
+            raise ValueError("Actual parcel weight exceeds allowed maximum (1000.0 kg).")
+        return val
     dimensions: Dimensions
     package_type: PackageType = Field(default=PackageType.BOX, description="Packaging format")
     is_cod: bool = Field(default=False, description="Whether shipment is Cash on Delivery")

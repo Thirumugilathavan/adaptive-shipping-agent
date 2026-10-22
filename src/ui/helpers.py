@@ -8,6 +8,7 @@ These helpers contain NO business logic duplicates – they only call existing d
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -80,13 +81,86 @@ def validate_phone(phone: str) -> tuple[bool, str]:
     return True, ""
 
 
-def validate_positive_float(value: float, field_name: str, max_val: float = 1e9) -> tuple[bool, str]:
-    """Validate a float is strictly positive and within max_val."""
-    if value <= 0.0:
-        return False, f"{field_name} must be greater than 0."
-    if value > max_val:
+def validate_positive_float(value: Any, field_name: str, max_val: float = 1e9) -> tuple[bool, str]:
+    """Validate a float is present, numeric, finite, strictly positive (> 0) and within max_val."""
+    if value is None:
+        if "length" in field_name.lower():
+            return False, "Please enter the parcel length."
+        if "width" in field_name.lower():
+            return False, "Please enter the parcel width."
+        if "height" in field_name.lower():
+            return False, "Please enter the parcel height."
+        if "weight" in field_name.lower():
+            return False, "Please enter the actual parcel weight."
+        return False, f"Please enter the {field_name.lower()}."
+
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if not cleaned:
+            if "length" in field_name.lower():
+                return False, "Please enter the parcel length."
+            if "width" in field_name.lower():
+                return False, "Please enter the parcel width."
+            if "height" in field_name.lower():
+                return False, "Please enter the parcel height."
+            if "weight" in field_name.lower():
+                return False, "Please enter the actual parcel weight."
+            return False, f"Please enter the {field_name.lower()}."
+        try:
+            val = float(cleaned)
+        except ValueError:
+            return False, f"{field_name} must be a valid number."
+    else:
+        try:
+            val = float(value)
+        except (TypeError, ValueError):
+            return False, f"{field_name} must be a valid number."
+
+    if math.isnan(val) or math.isinf(val):
+        return False, f"{field_name} must be a finite number (NaN and infinite values are not allowed)."
+
+    if val <= 0.0:
+        return False, f"{field_name} must be greater than zero (greater than 0)."
+
+    if val > max_val:
         return False, f"{field_name} exceeds allowed maximum ({max_val})."
+
     return True, ""
+
+
+def validate_shipment_measurements(
+    length_cm: Any,
+    width_cm: Any,
+    height_cm: Any,
+    parcel_weight_kg: Any,
+) -> tuple[bool, dict[str, str], list[str]]:
+    """
+    Validate all 4 mandatory measurements: length, width, height, and actual weight.
+    Returns (is_valid, field_errors_dict, error_messages_list).
+    """
+    field_errors: dict[str, str] = {}
+    error_list: list[str] = []
+    has_zero_or_negative = False
+
+    for val, name, key in [
+        (length_cm, "Parcel length", "length_cm"),
+        (width_cm, "Parcel width", "width_cm"),
+        (height_cm, "Parcel height", "height_cm"),
+        (parcel_weight_kg, "Actual parcel weight", "parcel_weight_kg"),
+    ]:
+        ok, msg = validate_positive_float(val, name, max_val=1000.0 if "weight" in key else 500.0)
+        if not ok:
+            field_errors[key] = msg
+            error_list.append(msg)
+            if "greater than" in msg.lower():
+                has_zero_or_negative = True
+
+    if has_zero_or_negative:
+        zero_summary = "Dimensions and weight must be greater than zero."
+        if zero_summary not in error_list:
+            error_list.append(zero_summary)
+
+    return len(field_errors) == 0, field_errors, error_list
 
 
 def validate_order_reference(ref: str) -> tuple[bool, str]:
@@ -103,6 +177,7 @@ def build_order_input_from_form(form_data: dict[str, Any]) -> tuple[Optional[Ord
     """
     Attempt to construct an OrderInput from flat form_data dict.
     Returns (order, []) on success, or (None, [error_messages]) on failure.
+    Enforces mandatory dimensions (length, width, height) and actual weight.
     """
     errors: list[str] = []
 
@@ -136,15 +211,32 @@ def build_order_input_from_form(form_data: dict[str, Any]) -> tuple[Optional[Ord
             errors.append(f"Recipient – {e['loc'][-1]}: {e['msg']}")
         recipient = None  # type: ignore[assignment]
 
-    try:
-        dimensions = Dimensions(
-            length_cm=float(form_data.get("length_cm", 0)),
-            width_cm=float(form_data.get("width_cm", 0)),
-            height_cm=float(form_data.get("height_cm", 0)),
-        )
-    except (ValidationError, ValueError) as exc:
-        errors.append(f"Dimensions: {exc}")
-        dimensions = None  # type: ignore[assignment]
+    # Mandatory measurement validations
+    len_raw = form_data.get("length_cm")
+    wid_raw = form_data.get("width_cm")
+    hgt_raw = form_data.get("height_cm")
+    wt_raw = form_data.get("parcel_weight_kg")
+
+    ok_m, field_m_errs, list_m_errs = validate_shipment_measurements(
+        length_cm=len_raw,
+        width_cm=wid_raw,
+        height_cm=hgt_raw,
+        parcel_weight_kg=wt_raw,
+    )
+    if not ok_m:
+        errors.extend(list_m_errs)
+
+    dimensions: Optional[Dimensions] = None
+    if ok_m:
+        try:
+            dimensions = Dimensions(
+                length_cm=float(len_raw),
+                width_cm=float(wid_raw),
+                height_cm=float(hgt_raw),
+            )
+        except (ValidationError, ValueError) as exc:
+            errors.append(f"Dimensions: {exc}")
+            dimensions = None
 
     is_cod = bool(form_data.get("is_cod", False))
     cod_amount = float(form_data.get("cod_amount", 0.0))
@@ -157,7 +249,7 @@ def build_order_input_from_form(form_data: dict[str, Any]) -> tuple[Optional[Ord
             order_reference=form_data.get("order_reference", "").strip(),
             sender=sender,
             recipient=recipient,
-            parcel_weight_kg=float(form_data.get("parcel_weight_kg", 0)),
+            parcel_weight_kg=float(wt_raw),
             dimensions=dimensions,
             package_type=PackageType(form_data.get("package_type", "box")),
             is_cod=is_cod,
@@ -175,6 +267,7 @@ def build_order_input_from_form(form_data: dict[str, Any]) -> tuple[Optional[Ord
         else:
             errors.append(str(exc))
         return None, errors
+
 
 
 # ---------------------------------------------------------------------------
