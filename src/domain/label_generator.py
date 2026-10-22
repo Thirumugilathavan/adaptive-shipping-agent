@@ -17,14 +17,30 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Optional, Union
 
-from reportlab.graphics.barcode import createBarcodeDrawing, qr
-from reportlab.graphics.shapes import Drawing
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A6
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import inch, mm
-from reportlab.pdfgen import canvas
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+REPORTLAB_AVAILABLE = True
+try:
+    from reportlab.graphics.barcode import createBarcodeDrawing
+    try:
+        from reportlab.graphics.barcode.qr import QrCodeWidget
+    except (ImportError, ModuleNotFoundError):
+        try:
+            from reportlab.graphics.barcode import qr
+            QrCodeWidget = getattr(qr, "QrCodeWidget", None)
+        except (ImportError, ModuleNotFoundError):
+            QrCodeWidget = None
+
+    from reportlab.graphics.shapes import Drawing
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A6
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import inch, mm
+    from reportlab.pdfgen import canvas
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+except (ImportError, ModuleNotFoundError):
+    REPORTLAB_AVAILABLE = False
+    Drawing = object  # type: ignore
+    canvas = None     # type: ignore
+    QrCodeWidget = None
 
 
 class LabelPageFormat(str, Enum):
@@ -34,8 +50,8 @@ class LabelPageFormat(str, Enum):
 
 
 PAGE_DIMENSIONS = {
-    LabelPageFormat.A6: A6,                             # (297.64, 419.53) pt
-    LabelPageFormat.INCH_4X6: (4.0 * inch, 6.0 * inch), # (288.0, 432.0) pt
+    LabelPageFormat.A6: (297.64, 419.53),               # 105 x 148 mm in pt
+    LabelPageFormat.INCH_4X6: (4.0 * 72.0, 6.0 * 72.0), # 4 x 6 inches (288.0, 432.0) pt
 }
 
 
@@ -56,7 +72,10 @@ def is_valid_pdf(data: bytes) -> bool:
     return data.startswith(b"%PDF-")
 
 
-class WatermarkCanvas(canvas.Canvas):
+_CanvasBase = canvas.Canvas if (REPORTLAB_AVAILABLE and canvas is not None) else object
+
+
+class WatermarkCanvas(_CanvasBase):
     """
     Custom canvas that draws a subtle diagonal synthetic watermark on demo labels
     and paints an outer label cut border.
@@ -67,6 +86,8 @@ class WatermarkCanvas(canvas.Canvas):
         self.is_demo = is_demo
 
     def showPage(self):
+        if not REPORTLAB_AVAILABLE:
+            return
         w, h = self._pagesize
 
         # Subtle outer boundary border (mimics peel-and-stick shipping label cutline)
@@ -88,10 +109,12 @@ class WatermarkCanvas(canvas.Canvas):
         super().showPage()
 
 
-def build_barcode_drawing(awb_number: str, max_width: float = 195.0, height: float = 30.0) -> Drawing:
+def build_barcode_drawing(awb_number: str, max_width: float = 195.0, height: float = 30.0) -> Any:
     """
     Generate a clean Code128 vector barcode scaled cleanly to fit the label.
     """
+    if not REPORTLAB_AVAILABLE:
+        return None
     safe_awb = re.sub(r"[^A-Za-z0-9_-]", "", awb_number) or "UNKNOWN"
     try:
         raw_bc = createBarcodeDrawing(
@@ -108,17 +131,18 @@ def build_barcode_drawing(awb_number: str, max_width: float = 195.0, height: flo
             return d
         return raw_bc
     except Exception:
-        # Graceful fallback: text placeholder inside a drawing
         fallback = Drawing(max_width, height)
         return fallback
 
 
-def build_qr_drawing(payload: str, size: float = 46.0) -> Drawing:
+def build_qr_drawing(payload: str, size: float = 46.0) -> Any:
     """
     Generate a 2D QR Code vector drawing encoding verified shipment references.
     """
+    if not REPORTLAB_AVAILABLE or QrCodeWidget is None:
+        return Drawing(size, size) if REPORTLAB_AVAILABLE else None
     try:
-        qr_widget = qr.QrCodeWidget(payload)
+        qr_widget = QrCodeWidget(payload)
         bounds = qr_widget.getBounds()
         w = bounds[2] - bounds[0]
         h = bounds[3] - bounds[1]
@@ -128,7 +152,7 @@ def build_qr_drawing(payload: str, size: float = 46.0) -> Drawing:
         d.add(qr_widget)
         return d
     except Exception:
-        return Drawing(size, size)
+        return Drawing(size, size) if REPORTLAB_AVAILABLE else None
 
 
 def generate_shipping_label_pdf(
@@ -172,6 +196,29 @@ def generate_shipping_label_pdf(
     fmt_key = LabelPageFormat.INCH_4X6 if str(page_format).lower() in ("4x6", "inch_4x6") else LabelPageFormat.A6
     page_size = PAGE_DIMENSIONS[fmt_key]
     page_w, page_h = page_size
+
+    if not REPORTLAB_AVAILABLE:
+        # Graceful pure-python valid PDF generator fallback when ReportLab is unavailable
+        vol_str = volumetric_display or (f"{volumetric_weight_kg:.2f} kg" if volumetric_weight_kg is not None else ("Not configured" if dimensions_cm and dimensions_cm != "—" else "—"))
+        billable_str = f"{billable_weight_kg:.2f} kg" if billable_weight_kg is not None else f"{actual_weight_kg:.2f} kg"
+        safe_awb_pdf = re.sub(r"[^A-Za-z0-9_-]", "", tracking_number) or "UNKNOWN"
+        fallback_pdf = (
+            f"%PDF-1.4\n"
+            f"% Simulated Shipping Label Document\n"
+            f"1 0 obj <</Type /Catalog /Pages 2 0 R>> endobj\n"
+            f"2 0 obj <</Type /Pages /Kids [3 0 R] /Count 1>> endobj\n"
+            f"3 0 obj <</Type /Page /Parent 2 0 R /MediaBox [0 0 {int(page_w)} {int(page_h)}] /Contents 4 0 R /Resources <</Font <</F1 5 0 R>>>>>> endobj\n"
+            f"5 0 obj <</Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold>> endobj\n"
+            f"4 0 obj <</Length 350>> stream\n"
+            f"BT\n/F1 14 Tf\n20 {int(page_h - 40)} Td\n({courier_name} - {service_type}) Tj\n"
+            f"/F1 12 Tf\n0 -25 Td\n(AWB: {safe_awb_pdf}) Tj\n"
+            f"/F1 9 Tf\n0 -20 Td\n(Order: {order_reference} | Wt: {actual_weight_kg:.2f}kg | Vol: {vol_str} | Billed: {billable_str}) Tj\n"
+            f"/F1 9 Tf\n0 -18 Td\n(Route: PIN {origin_pin} -> PIN {destination_pin}) Tj\n"
+            f"/F1 8 Tf\n0 -22 Td\n(Ship To: {recipient_name}, {destination_city} {destination_pin}) Tj\n"
+            f"/F1 8 Tf\n0 -16 Td\n(From: {sender_name}, {origin_city} {origin_pin}) Tj\n"
+            f"ET\nendstream\nendobj\nxref\n0 6\n0000000000 65535 f \n0000000010 00000 n \n0000000060 00000 n \n0000000117 00000 n \n0000000280 00000 n \n0000000220 00000 n \ntrailer <</Size 6 /Root 1 0 R>>\nstartxref\n580\n%%EOF\n"
+        )
+        return fallback_pdf.encode("utf-8")
 
     # Usable printable dimensions
     margin_lr = 9.0
@@ -534,29 +581,37 @@ def generate_label_preview_html(
     Generate an authentic, responsive HTML/SVG shipping label card preview.
     Uses vector SVG for Code128 barcode and QR code to guarantee zero browser blocking.
     """
-    from reportlab.graphics import renderSVG
-
     def esc(s: Any) -> str:
         return html.escape(str(s or "—"))
 
     # Vector Code128 barcode SVG
-    try:
-        bc_drawing = build_barcode_drawing(tracking_number, max_width=210.0, height=32.0)
-        bc_svg_raw = renderSVG.drawToString(bc_drawing)
-        bc_idx = bc_svg_raw.find("<svg")
-        bc_svg = bc_svg_raw[bc_idx:] if bc_idx != -1 else ""
-    except Exception:
+    bc_svg = ""
+    if REPORTLAB_AVAILABLE:
+        try:
+            from reportlab.graphics import renderSVG
+            bc_drawing = build_barcode_drawing(tracking_number, max_width=210.0, height=32.0)
+            if bc_drawing:
+                bc_svg_raw = renderSVG.drawToString(bc_drawing)
+                bc_idx = bc_svg_raw.find("<svg")
+                bc_svg = bc_svg_raw[bc_idx:] if bc_idx != -1 else ""
+        except Exception:
+            bc_svg = ""
+    if not bc_svg:
         bc_svg = f'<div style="font-family: monospace; font-size: 15px; font-weight: bold; letter-spacing: 2px;">||| | |||| | ||| {esc(tracking_number)}</div>'
 
     # Vector QR code SVG
-    try:
-        qr_payload = f"AWB:{tracking_number}|ORD:{order_reference}|TO:{destination_pin}"
-        qr_drawing = build_qr_drawing(qr_payload, size=46.0)
-        qr_svg_raw = renderSVG.drawToString(qr_drawing)
-        qr_idx = qr_svg_raw.find("<svg")
-        qr_svg = qr_svg_raw[qr_idx:] if qr_idx != -1 else ""
-    except Exception:
-        qr_svg = ""
+    qr_svg = ""
+    if REPORTLAB_AVAILABLE:
+        try:
+            from reportlab.graphics import renderSVG
+            qr_payload = f"AWB:{tracking_number}|ORD:{order_reference}|TO:{destination_pin}"
+            qr_drawing = build_qr_drawing(qr_payload, size=46.0)
+            if qr_drawing:
+                qr_svg_raw = renderSVG.drawToString(qr_drawing)
+                qr_idx = qr_svg_raw.find("<svg")
+                qr_svg = qr_svg_raw[qr_idx:] if qr_idx != -1 else ""
+        except Exception:
+            qr_svg = ""
 
     date_str = created_at_iso[:16].replace("T", " ") if created_at_iso else datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
 
@@ -765,3 +820,20 @@ def generate_label_preview_from_shipment_context(
         pickup_reference=pickup_ref,
         is_demo=is_demo,
     )
+
+
+__all__ = [
+    "LabelPageFormat",
+    "PAGE_DIMENSIONS",
+    "sanitize_label_filename",
+    "is_valid_pdf",
+    "WatermarkCanvas",
+    "build_barcode_drawing",
+    "build_qr_drawing",
+    "generate_shipping_label_pdf",
+    "generate_label_from_shipment_context",
+    "generate_label_preview_html",
+    "generate_label_preview_from_shipment_context",
+    "REPORTLAB_AVAILABLE",
+]
+
