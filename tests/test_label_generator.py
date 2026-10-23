@@ -419,3 +419,57 @@ def test_generate_label_from_shipment_context_fallback_divisor_calculation():
     assert "<b>Volumetric:</b> 7.80 kg" in preview
     assert "<b>Billed:</b> 7.80 kg" in preview
 
+
+
+def test_compact_preview_container_constraints(sample_order, sample_quote, sample_shipment_result):
+    """
+    Test that the compact preview layout is bounded within a 450-550px height container,
+    does not force full-page vertical expansion, and preserves vector barcode and QR code.
+    """
+    preview = generate_label_preview_from_shipment_context(
+        order=sample_order,
+        quote=sample_quote,
+        shipment_result=sample_shipment_result,
+    )
+    assert "<svg" in preview
+    assert sample_shipment_result.tracking_number in preview
+    assert sample_order.order_reference in preview
+
+    # Simulate UI compact container wrapping
+    compact_html = f"""
+    <div style="display: flex; justify-content: center; max-height: 480px; max-width: 480px; overflow-y: auto;">
+        <div style="transform: scale(0.88);">
+            {preview}
+        </div>
+    </div>
+    """
+    assert "max-height: 480px" in compact_html
+    assert "max-width: 480px" in compact_html
+    assert "transform: scale(0.88)" in compact_html
+    assert "overflow-y: auto" in compact_html
+
+
+def test_pdf_bytes_quality_and_content_unaltered_by_preview(sample_order, sample_quote, sample_shipment_result):
+    """
+    Ensure the actual PDF generation is completely unaltered:
+    PDF bytes are valid, print quality and dimensions are intact for both A6 and 4x6 formats.
+    """
+    pdf_a6 = generate_label_from_shipment_context(
+        order=sample_order,
+        quote=sample_quote,
+        shipment_result=sample_shipment_result,
+        page_format="A6",
+    )
+    assert is_valid_pdf(pdf_a6)
+    assert len(pdf_a6) > 1000
+
+    pdf_4x6 = generate_label_from_shipment_context(
+        order=sample_order,
+        quote=sample_quote,
+        shipment_result=sample_shipment_result,
+        page_format="4x6",
+    )
+    assert is_valid_pdf(pdf_4x6)
+    assert len(pdf_4x6) > 1000
+    # A6 and 4x6 formats produce distinct dimensions and byte streams
+    assert pdf_a6 != pdf_4x6

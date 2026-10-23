@@ -1610,6 +1610,34 @@ def _render_review_and_approve_section():
 
 
 # ── Step 4 & 5: Completion & PDF Label Download ──────────────────────────────
+if hasattr(st, "dialog"):
+    @st.dialog("🔍 Full-Size Shipping Label Preview", width="large")
+    def _render_full_label_dialog(preview_html_str: str, pdf_data: Optional[bytes], clean_awb: str, page_format_val: str):
+        st.caption(f"Unscaled High-Resolution Preview • Paper Format: {page_format_val} • AWB: {clean_awb.replace('.pdf', '')}")
+        st.markdown(
+            f"""
+            <div style="display: flex; justify-content: center; align-items: center; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1.5px solid #e2e8f0; margin-bottom: 12px; overflow-x: auto;">
+                <div style="max-width: 520px; width: 100%;">
+                    {preview_html_str}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if pdf_data and is_valid_pdf(pdf_data):
+            st.download_button(
+                label=f"📥 Download Original PDF Shipping Label ({page_format_val})",
+                data=pdf_data,
+                file_name=clean_awb,
+                mime="application/pdf",
+                type="primary",
+                use_container_width=True,
+                key="btn_dialog_download_pdf",
+            )
+else:
+    _render_full_label_dialog = None
+
+
 def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuote, dispatch_result: Any):
     st.success("🎉 **Your shipment is ready**")
 
@@ -1744,33 +1772,80 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
 
     clean_awb = sanitize_label_filename(dispatch_result.tracking_number, extension="pdf")
 
+    # Safe generation of HTML/SVG preview
+    preview_html = ""
+    try:
+        preview_html = generate_label_preview_from_shipment_context(
+            order=order,
+            quote=selected_quote,
+            shipment_result=dispatch_result,
+            pickup_result=pickup_res,
+        )
+    except Exception as ex:
+        preview_html = f"<div style='padding: 20px; text-align: center; color: #64748b;'>Preview unavailable: {html.escape(str(ex))}. Please use the download button above to retrieve the official PDF label.</div>"
+
     with col_btn:
         st.write("")
-        if pdf_bytes and is_valid_pdf(pdf_bytes):
-            st.download_button(
-                label=f"📥 Download Printable PDF Shipping Label ({page_format_val})",
-                data=pdf_bytes,
-                file_name=clean_awb,
-                mime="application/pdf",
-                type="primary",
-                use_container_width=True,
-                key="btn_download_pdf_ready",
-            )
+        act_col1, act_col2 = st.columns([1.1, 0.9])
+        with act_col1:
+            if pdf_bytes and is_valid_pdf(pdf_bytes):
+                st.download_button(
+                    label=f"📥 Download PDF Label ({page_format_val})",
+                    data=pdf_bytes,
+                    file_name=clean_awb,
+                    mime="application/pdf",
+                    type="primary",
+                    use_container_width=True,
+                    key="btn_download_pdf_ready",
+                )
+        with act_col2:
+            if st.button("🔍 Expand Preview", use_container_width=True, key="btn_expand_label_preview"):
+                if _render_full_label_dialog:
+                    _render_full_label_dialog(preview_html, pdf_bytes, clean_awb, page_format_val)
+                else:
+                    st.session_state["inline_preview_expanded"] = not st.session_state.get("inline_preview_expanded", False)
 
         if dispatch_result.label_data and str(dispatch_result.label_data).startswith("http"):
-            st.link_button("🌐 Open Official ShipEngine Carrier Label (PDF)", str(dispatch_result.label_data), use_container_width=True)
+            st.link_button("🌐 Open Official Carrier Label (PDF)", str(dispatch_result.label_data), use_container_width=True)
 
-    with st.expander("👁️ View Live Shipping Label Preview", expanded=True):
-        try:
-            preview_html = generate_label_preview_from_shipment_context(
-                order=order,
-                quote=selected_quote,
-                shipment_result=dispatch_result,
-                pickup_result=pickup_res,
-            )
-            st.markdown(preview_html, unsafe_allow_html=True)
-        except Exception as ex:
-            st.caption(f"Preview unavailable: {ex}. Please use the download button above to retrieve the PDF label.")
+    # ── Centered, Compact, Scroll-Friendly Preview Container ──
+    # Bounded to ~480px max-height to eliminate excessive vertical scrolling
+    compact_preview_html = f"""
+    <div style="display: flex; justify-content: center; align-items: flex-start; width: 100%; margin: 8px 0 10px 0;">
+      <div style="
+          max-height: 480px;
+          max-width: 480px;
+          width: 100%;
+          overflow-y: auto;
+          overflow-x: hidden;
+          border: 1.5px solid #cbd5e1;
+          border-radius: 8px;
+          background: #f8fafc;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+          padding: 6px;
+          box-sizing: border-box;
+          scrollbar-width: thin;
+      ">
+        <div style="transform-origin: top center; transform: scale(0.88); margin-bottom: -11%;">
+          {preview_html}
+        </div>
+      </div>
+    </div>
+    """
+    st.markdown(compact_preview_html, unsafe_allow_html=True)
+
+    # Collapsible full-size preview expander (collapsed by default to prevent vertical stretching)
+    with st.expander("🔍 Full-Size Unscaled Label (100% Zoom)", expanded=st.session_state.get("inline_preview_expanded", False)):
+        st.markdown(
+            f"""
+            <div style="display: flex; justify-content: center; align-items: center; width: 100%; padding: 8px; overflow-x: auto;">
+                <div style="max-width: 520px; width: 100%;">
+                    {preview_html}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     st.divider()
     if st.button("🔄 Ship Another Parcel", use_container_width=True):
