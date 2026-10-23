@@ -329,10 +329,10 @@ def freshness_badge(quote: CourierQuote, max_age_seconds: int = 900) -> tuple[st
 def quote_source_badge(quote: CourierQuote) -> str:
     """Return a prominent DEMO DATA, SANDBOX, or LIVE label string."""
     if quote.source_type == "SHIPENGINE_SANDBOX":
-        return "🟢 SHIPENGINE SANDBOX — Real API rate from ShipEngine Sandbox"
+        return "[SHIPENGINE SANDBOX] Real API rate from ShipEngine Sandbox"
     if quote.is_demo_data:
-        return "🔵 DEMO DATA — Simulated rate, not a live carrier price"
-    return "🟢 LIVE QUOTE"
+        return "[DEMO DATA] Simulated rate, not a live carrier price"
+    return "[LIVE QUOTE]"
 
 
 def format_cost_breakdown(cb: CostBreakdown) -> dict[str, str]:
@@ -351,7 +351,7 @@ def format_cost_breakdown(cb: CostBreakdown) -> dict[str, str]:
 
 def format_weight_breakdown(wr: WeightResult) -> dict[str, str]:
     """Return a display-ready ordered dict of weight breakdown."""
-    penalty = " ⚠️ Volumetric Penalty" if wr.is_volumetric_penalty else " ✅ Dead-weight Higher"
+    penalty = " [Volumetric Penalty]" if wr.is_volumetric_penalty else " [Dead-weight Higher]"
     return {
         "Actual (Dead) Weight": fmt_kg(wr.actual_weight_kg),
         "Volumetric Weight": fmt_kg(wr.volumetric_weight_kg),

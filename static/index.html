@@ -13,10 +13,16 @@
   <!-- Header Bar -->
   <header class="app-header">
     <div class="header-left">
-      <div class="logo-icon">📦</div>
+      <div class="logo-icon" aria-label="Shipping Agent Logo">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+          <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        </svg>
+      </div>
       <div>
         <h1 class="app-title">Adaptive Shipping Intelligence Agent</h1>
-        <p class="app-subtitle">Autonomous Rate Comparer, Packaging Optimizer & Dispatch Verification</p>
+        <p class="app-subtitle">Autonomous Rate Comparer, Packaging Optimizer &amp; Dispatch Verification</p>
       </div>
     </div>
     <div class="header-right">
@@ -36,168 +42,215 @@
 
   <!-- Navigation Tabs -->
   <nav class="nav-tabs">
-    <button class="tab-btn active" data-tab="tab-rates">🚀 Rate Shopping & Dispatch</button>
-    <button class="tab-btn" data-tab="tab-evaluator">🧪 10-Scenario Evaluator & Tests</button>
-    <button class="tab-btn" data-tab="tab-packaging">📦 Packaging 3D Optimizer</button>
-    <button class="tab-btn" data-tab="tab-audit">🛡️ Security Audit Logs</button>
+    <button class="tab-btn active" data-tab="tab-rates">Rate Shopping &amp; Dispatch</button>
+    <button class="tab-btn" data-tab="tab-evaluator">10-Scenario Evaluator &amp; Tests</button>
+    <button class="tab-btn" data-tab="tab-packaging">Packaging 3D Optimizer</button>
+    <button class="tab-btn" data-tab="tab-audit">Security Audit Logs</button>
   </nav>
 
   <!-- Main Content Container -->
   <main class="main-container">
 
     <!-- =================================================================== -->
-    <!-- TAB 1: Rate Shopping & Dispatch                                     -->
+    <!-- TAB 1: Rate Shopping & Dispatch (Step-by-Step Multi-Window Wizard)   -->
     <!-- =================================================================== -->
     <section id="tab-rates" class="tab-pane active">
-      <div class="two-col-layout">
+      <div class="wizard-container">
         
-        <!-- Left Column: Input Form -->
-        <div class="panel form-panel">
-          <div class="panel-header">
-            <h2>📦 Shipment Details & Measurements</h2>
-            <button id="btnResetForm" class="btn-ghost" title="Reset form to defaults">🔄 Reset</button>
+        <!-- Step Progress Header -->
+        <div class="wizard-stepper" id="wizardStepper">
+          <div class="step-item active" data-step="1" id="stepIndicator1">
+            <div class="step-circle">1</div>
+            <div class="step-info">
+              <span class="step-num">Step 1</span>
+              <span class="step-title">Shipment &amp; Dimensions</span>
+            </div>
           </div>
-
-          <form id="shippingForm" novalidate>
-            <!-- Route Section -->
-            <div class="form-section">
-              <h3 class="section-title">📍 Origin & Destination</h3>
-              <div class="grid-2">
-                <div class="form-group">
-                  <label for="senderPin">Pickup PIN Code *</label>
-                  <input type="text" id="senderPin" name="sender_pin" value="110001" maxlength="6" required>
-                  <span class="helper-text" id="senderPinDesc">New Delhi (Delhi)</span>
-                </div>
-                <div class="form-group">
-                  <label for="recipientPin">Delivery PIN Code *</label>
-                  <input type="text" id="recipientPin" name="recipient_pin" value="400001" maxlength="6" required>
-                  <span class="helper-text" id="recipientPinDesc">Mumbai (Maharashtra)</span>
-                </div>
-              </div>
-              <div class="grid-2">
-                <div class="form-group">
-                  <label for="senderName">Sender Name</label>
-                  <input type="text" id="senderName" name="sender_name" value="Warehouse Central Hub">
-                </div>
-                <div class="form-group">
-                  <label for="recipientName">Recipient Name</label>
-                  <input type="text" id="recipientName" name="recipient_name" value="Priya Sharma">
-                </div>
-              </div>
+          <div class="step-connector" id="connector1"></div>
+          <div class="step-item" data-step="2" id="stepIndicator2">
+            <div class="step-circle">2</div>
+            <div class="step-info">
+              <span class="step-num">Step 2</span>
+              <span class="step-title">Carrier Rates</span>
             </div>
-
-            <!-- Measurements Section -->
-            <div class="form-section">
-              <h3 class="section-title">📐 Mandatory Dimensions & Weight</h3>
-              <div class="grid-4">
-                <div class="form-group">
-                  <label for="dimLength">Length (cm) *</label>
-                  <input type="number" id="dimLength" name="length_cm" value="25.0" step="0.5" min="0.1" required>
-                </div>
-                <div class="form-group">
-                  <label for="dimWidth">Width (cm) *</label>
-                  <input type="number" id="dimWidth" name="width_cm" value="20.0" step="0.5" min="0.1" required>
-                </div>
-                <div class="form-group">
-                  <label for="dimHeight">Height (cm) *</label>
-                  <input type="number" id="dimHeight" name="height_cm" value="15.0" step="0.5" min="0.1" required>
-                </div>
-                <div class="form-group">
-                  <label for="dimWeight">Weight (kg) *</label>
-                  <input type="number" id="dimWeight" name="parcel_weight_kg" value="1.5" step="0.1" min="0.01" required>
-                </div>
-              </div>
-
-              <!-- Live Volumetric Chip -->
-              <div class="volumetric-banner" id="volumetricBanner">
-                <span>⚡ Volume: <strong id="valVolume">7,500 cm³</strong></span>
-                <span>• Volumetric (Div 5000): <strong id="valVolWeight">1.50 kg</strong></span>
-                <span>• Billable Weight: <strong id="valBillWeight">1.50 kg</strong></span>
-              </div>
+          </div>
+          <div class="step-connector" id="connector2"></div>
+          <div class="step-item" data-step="3" id="stepIndicator3">
+            <div class="step-circle">3</div>
+            <div class="step-info">
+              <span class="step-num">Step 3</span>
+              <span class="step-title">Approval &amp; Gate</span>
             </div>
-
-            <!-- Packaging & Payment Section -->
-            <div class="form-section">
-              <h3 class="section-title">💼 Package Type & Payment Terms</h3>
-              <div class="grid-2">
-                <div class="form-group">
-                  <label for="packageType">Package Type</label>
-                  <select id="packageType" name="package_type">
-                    <option value="box" selected>Standard Corrugated Box</option>
-                    <option value="flyer">Poly Flyer / Bubble Mailer</option>
-                    <option value="wooden_crate">Wooden Crate</option>
-                    <option value="custom">Custom Packaging</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label for="paymentMode">Payment Method</label>
-                  <select id="paymentMode" name="payment_mode">
-                    <option value="prepaid" selected>Prepaid (Online)</option>
-                    <option value="cod">Cash on Delivery (COD)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div class="form-group hidden" id="codGroup">
-                <label for="codAmount">COD Collection Amount (₹) *</label>
-                <input type="number" id="codAmount" name="cod_amount" value="1200.0" step="10.0" min="1.0">
-              </div>
+          </div>
+          <div class="step-connector" id="connector3"></div>
+          <div class="step-item" data-step="4" id="stepIndicator4">
+            <div class="step-circle">4</div>
+            <div class="step-info">
+              <span class="step-num">Step 4</span>
+              <span class="step-title">Label &amp; Confirmation</span>
             </div>
-
-            <!-- Shipping Advisor Preferences -->
-            <div class="form-section">
-              <h3 class="section-title">🎯 Personal Shipping Preferences (Advisor)</h3>
-              <div class="grid-3">
-                <div class="form-group">
-                  <label for="prefBudget">Max Budget (₹)</label>
-                  <input type="number" id="prefBudget" name="max_budget" placeholder="e.g. 250" step="10">
-                </div>
-                <div class="form-group">
-                  <label for="prefDays">Target Deadline (Days)</label>
-                  <input type="number" id="prefDays" name="max_delivery_days" placeholder="e.g. 3" min="1" max="14">
-                </div>
-                <div class="form-group">
-                  <label for="rankingMode">Ranking Strategy</label>
-                  <select id="rankingMode" name="ranking_mode">
-                    <option value="lowest_cost" selected>Lowest Landed Cost</option>
-                    <option value="fastest">Fastest Delivery (SLA)</option>
-                    <option value="balanced">Balanced (Cost + SLA)</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <!-- Submit Button -->
-            <button type="submit" id="btnFindCouriers" class="btn-primary full-width">
-              🔍 Find & Compare Couriers
-            </button>
-          </form>
+          </div>
         </div>
 
-        <!-- Right Column: Comparison & Action Gate -->
-        <div class="panel results-panel">
-          
-          <!-- Empty State -->
-          <div id="emptyResultsState" class="empty-state">
-            <div class="empty-icon">📊</div>
-            <h3>No Rates Calculated Yet</h3>
-            <p>Fill out the shipment measurements on the left and click <strong>Find & Compare Couriers</strong>, or load a scenario from the Evaluator tab.</p>
-          </div>
+        <!-- =============================================================== -->
+        <!-- SCREEN 1: Package Dimensions & Shipment Details                 -->
+        <!-- =============================================================== -->
+        <div class="wizard-panel active" id="wizardStep1">
+          <div class="panel form-panel">
+            <div class="panel-header">
+              <div>
+                <h2>Step 1: Shipment Details &amp; Package Dimensions</h2>
+                <p class="panel-desc">Enter origin/destination PIN codes and precise parcel dimensions to evaluate available courier services.</p>
+              </div>
+              <button id="btnResetForm" class="btn-ghost" title="Reset form to defaults">Reset Form</button>
+            </div>
 
-          <!-- Active Results Container -->
-          <div id="resultsContainer" class="hidden">
-            
+            <form id="shippingForm" novalidate>
+              <!-- Route Section -->
+              <div class="form-section">
+                <h3 class="section-title">Origin &amp; Destination</h3>
+                <div class="grid-2">
+                  <div class="form-group">
+                    <label for="senderPin">Pickup PIN Code *</label>
+                    <input type="text" id="senderPin" name="sender_pin" value="110001" maxlength="6" required>
+                    <span class="helper-text" id="senderPinDesc">New Delhi (Delhi)</span>
+                  </div>
+                  <div class="form-group">
+                    <label for="recipientPin">Delivery PIN Code *</label>
+                    <input type="text" id="recipientPin" name="recipient_pin" value="400001" maxlength="6" required>
+                    <span class="helper-text" id="recipientPinDesc">Mumbai (Maharashtra)</span>
+                  </div>
+                </div>
+                <div class="grid-2">
+                  <div class="form-group">
+                    <label for="senderName">Sender Name</label>
+                    <input type="text" id="senderName" name="sender_name" value="Warehouse Central Hub">
+                  </div>
+                  <div class="form-group">
+                    <label for="recipientName">Recipient Name</label>
+                    <input type="text" id="recipientName" name="recipient_name" value="Priya Sharma">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Measurements Section -->
+              <div class="form-section">
+                <h3 class="section-title">Mandatory Dimensions &amp; Weight</h3>
+                <div class="grid-4">
+                  <div class="form-group">
+                    <label for="dimLength">Length (cm) *</label>
+                    <input type="number" id="dimLength" name="length_cm" value="25.0" step="0.5" min="0.1" required>
+                  </div>
+                  <div class="form-group">
+                    <label for="dimWidth">Width (cm) *</label>
+                    <input type="number" id="dimWidth" name="width_cm" value="20.0" step="0.5" min="0.1" required>
+                  </div>
+                  <div class="form-group">
+                    <label for="dimHeight">Height (cm) *</label>
+                    <input type="number" id="dimHeight" name="height_cm" value="15.0" step="0.5" min="0.1" required>
+                  </div>
+                  <div class="form-group">
+                    <label for="dimWeight">Weight (kg) *</label>
+                    <input type="number" id="dimWeight" name="parcel_weight_kg" value="1.5" step="0.1" min="0.01" required>
+                  </div>
+                </div>
+
+                <!-- Live Volumetric Chip -->
+                <div class="volumetric-banner" id="volumetricBanner">
+                  <span>Volume: <strong id="valVolume">7,500 cm3</strong></span>
+                  <span>Volumetric (Div 5000): <strong id="valVolWeight">1.50 kg</strong></span>
+                  <span>Billable Weight: <strong id="valBillWeight">1.50 kg</strong></span>
+                </div>
+              </div>
+
+              <!-- Packaging & Payment Section -->
+              <div class="form-section">
+                <h3 class="section-title">Package Type &amp; Payment Terms</h3>
+                <div class="grid-2">
+                  <div class="form-group">
+                    <label for="packageType">Package Type</label>
+                    <select id="packageType" name="package_type">
+                      <option value="box" selected>Standard Corrugated Box</option>
+                      <option value="flyer">Poly Flyer / Bubble Mailer</option>
+                      <option value="wooden_crate">Wooden Crate</option>
+                      <option value="custom">Custom Packaging</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="paymentMode">Payment Method</label>
+                    <select id="paymentMode" name="payment_mode">
+                      <option value="prepaid" selected>Prepaid (Online)</option>
+                      <option value="cod">Cash on Delivery (COD)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-group hidden" id="codGroup">
+                  <label for="codAmount">COD Collection Amount (INR) *</label>
+                  <input type="number" id="codAmount" name="cod_amount" value="1200.0" step="10.0" min="1.0">
+                </div>
+              </div>
+
+              <!-- Shipping Advisor Preferences -->
+              <div class="form-section">
+                <h3 class="section-title">Personal Shipping Preferences (Advisor)</h3>
+                <div class="grid-3">
+                  <div class="form-group">
+                    <label for="prefBudget">Max Budget (INR)</label>
+                    <input type="number" id="prefBudget" name="max_budget" placeholder="e.g. 250" step="10">
+                  </div>
+                  <div class="form-group">
+                    <label for="prefDays">Target Deadline (Days)</label>
+                    <input type="number" id="prefDays" name="max_delivery_days" placeholder="e.g. 3" min="1" max="14">
+                  </div>
+                  <div class="form-group">
+                    <label for="rankingMode">Ranking Strategy</label>
+                    <select id="rankingMode" name="ranking_mode">
+                      <option value="lowest_cost" selected>Lowest Landed Cost</option>
+                      <option value="fastest">Fastest Delivery (SLA)</option>
+                      <option value="balanced">Balanced (Cost + SLA)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Submit Action -->
+              <div class="wizard-actions">
+                <button type="submit" id="btnFindCouriers" class="btn-primary btn-lg">
+                  Find &amp; Compare Couriers
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- =============================================================== -->
+        <!-- SCREEN 2: Carrier Rate Selection                                -->
+        <!-- =============================================================== -->
+        <div class="wizard-panel" id="wizardStep2">
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Step 2: Carrier Rate Selection</h2>
+                <p class="panel-desc">Review ranked courier quotes, SLA turnaround times, and fee breakdowns.</p>
+              </div>
+              <button id="btnBackToStep1" class="btn-outline btn-sm">Edit Dimensions</button>
+            </div>
+
+            <!-- Quick Summary Strip -->
+            <div class="shipment-summary-strip" id="step2SummaryStrip"></div>
+
             <!-- Advisor Recommendation Card -->
             <div id="advisorCard" class="card advisor-card">
               <div class="advisor-header">
-                <span class="badge-recommendation">⭐ Intelligent Advisor Pick</span>
+                <span class="badge-recommendation">RECOMMENDED ADVISOR PICK</span>
                 <h3 id="advCourierName">Demo Air Express</h3>
               </div>
               <p id="advExplanation" class="advisor-explanation"></p>
               
               <!-- Tradeoff Warning if any -->
               <div id="advTradeoffBox" class="tradeoff-box hidden">
-                <strong>⚠️ Preference Trade-off Notice:</strong>
+                <strong>Preference Trade-off Notice:</strong>
                 <ul id="advTradeoffList"></ul>
               </div>
             </div>
@@ -206,22 +259,22 @@
             <div id="mlPredictionCard" class="card ml-prediction-card">
               <div class="ml-card-header">
                 <div class="ml-title-group">
-                  <span class="badge-ml">🔮 ML Rate Intelligence</span>
+                  <span class="badge-ml">ML RATE INTELLIGENCE</span>
                   <h3 class="ml-heading">Machine Learning Price Benchmark</h3>
                 </div>
                 <div class="ml-model-switcher">
                   <label for="mlModelSelect" class="ml-switcher-label">Model:</label>
                   <select id="mlModelSelect" class="ml-select">
-                    <option value="domestic_courier" selected>🇮🇳 Domestic Courier (INR)</option>
-                    <option value="reference_sculpture">🏛️ Reference Sculpture (USD)</option>
+                    <option value="domestic_courier" selected>Domestic Courier (INR)</option>
+                    <option value="reference_sculpture">Reference Sculpture (USD)</option>
                   </select>
                 </div>
               </div>
 
               <!-- Non-Binding Disclaimer Notice -->
               <div class="ml-disclaimer-notice">
-                <span class="ml-disc-icon">ℹ️</span>
-                <span><strong>Non-Binding Statistical Estimate:</strong> ML rate benchmark for operational price validation. Carrier quotes strictly govern actual booking and billing.</span>
+                <span class="ml-disc-tag">[NON-BINDING ESTIMATE]</span>
+                <span>ML rate benchmark for operational price validation. Carrier quotes strictly govern actual booking and billing.</span>
               </div>
 
               <!-- Price & Variance Metric Row -->
@@ -243,7 +296,7 @@
 
               <!-- Explanation & Agent Advice -->
               <div class="ml-advice-box">
-                <div class="ml-advice-title">💡 Agent Pricing Advice:</div>
+                <div class="ml-advice-title">Agent Pricing Advice:</div>
                 <p id="mlAdviceText" class="ml-advice-text">Establish baseline by calculating courier rates.</p>
                 <div class="ml-action-callout" id="mlRecommendedAction">Action: Review live quotes.</div>
               </div>
@@ -255,12 +308,12 @@
                   <span class="ml-chip" id="mlMetaVersion">v1.0.0</span>
                   <span class="ml-chip" id="mlMetaSchema">Schema v1.0.0</span>
                 </div>
-                <button type="button" class="btn-link" id="btnToggleMlDetails">View Limitations & Features ▾</button>
+                <button type="button" class="btn-link" id="btnToggleMlDetails">View Limitations &amp; Features</button>
               </div>
 
               <div class="ml-limitations-drawer hidden" id="mlLimitationsDrawer">
                 <div class="ml-drawer-content">
-                  <h5>Model Assumptions & Operational Limitations:</h5>
+                  <h5>Model Assumptions &amp; Operational Limitations:</h5>
                   <ul id="mlLimitationsList" class="ml-bullet-list">
                     <li>Statistical regression trained on domestic regional PIN codes, dimensional volume, and weight slabs.</li>
                     <li>Accessorial fuel, octroi, and emergency surcharges are estimated statistically.</li>
@@ -274,17 +327,35 @@
             <div class="couriers-section">
               <div class="section-header-row">
                 <h3>Ranked Courier Rates</h3>
-                <span id="rateCountBadge" class="badge-count">0 Couriers</span>
+                <span id="rateCountBadge" class="badge-count">0 Couriers Evaluated</span>
               </div>
               <div id="courierCardsList" class="courier-cards-grid"></div>
             </div>
 
-            <!-- Human Approval & Review Gate -->
-            <div id="approvalGatePanel" class="card approval-gate-card">
-              <div class="panel-header">
-                <h3>🛡️ Human Approval & Dispatch Gate</h3>
-                <span class="badge-fsm">FSM: PENDING_APPROVAL</span>
+            <!-- Footer Navigation -->
+            <div class="wizard-footer-nav">
+              <button id="btnNavBackTo1" class="btn-outline">Back to Dimensions</button>
+              <button id="btnProceedToApproval" class="btn-primary" disabled>
+                Continue to Approval Gate
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- =============================================================== -->
+        <!-- SCREEN 3: Human Approval Gate                                   -->
+        <!-- =============================================================== -->
+        <div class="wizard-panel" id="wizardStep3">
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Step 3: Approval &amp; Dispatch Gate</h2>
+                <p class="panel-desc">Verify total landed cost, route serviceability, and confirm dispatch authorization.</p>
               </div>
+              <span class="badge-fsm">FSM: PENDING_APPROVAL</span>
+            </div>
+
+            <div class="card approval-gate-card">
               <div class="approval-summary" id="approvalSummary"></div>
 
               <div class="approval-action-box">
@@ -293,16 +364,26 @@
                   <span class="checkmark"></span>
                   I confirm the shipment details, rate terms, and route serviceability for dispatch.
                 </label>
-                <button id="btnApproveDispatch" class="btn-success full-width" disabled>
-                  🚀 Approve and Create Shipment
-                </button>
               </div>
             </div>
 
-            <!-- Shipment Ready & Label Section -->
-            <div id="shipmentReadyPanel" class="card shipment-ready-card hidden">
+            <div class="wizard-footer-nav">
+              <button id="btnNavBackTo2" class="btn-outline">Back to Rates</button>
+              <button id="btnApproveDispatch" class="btn-success" disabled>
+                Approve and Create Shipment
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- =============================================================== -->
+        <!-- SCREEN 4: Label & Confirmation                                  -->
+        <!-- =============================================================== -->
+        <div class="wizard-panel" id="wizardStep4">
+          <div class="panel">
+            <div class="card shipment-ready-card" id="shipmentReadyPanel">
               <div class="ready-header">
-                <div class="ready-badge">✅ SHIPMENT CREATED & VERIFIED</div>
+                <div class="ready-badge">VERIFIED: SHIPMENT CREATED</div>
                 <h3 id="readyAwb">AWB: DEMO-TRK-12345</h3>
               </div>
               
@@ -325,14 +406,14 @@
                 </div>
               </div>
 
-              <!-- Compact, Scroll-Friendly Shipping Label Preview Container -->
+              <!-- Shipping Label Preview Container -->
               <div class="label-preview-section">
                 <div class="preview-toolbar">
-                  <h4>📄 Shipping Label (A6 Format)</h4>
+                  <h4>Shipping Label (A6 Format)</h4>
                   <div class="toolbar-actions">
-                    <button id="btnDownloadLabelPdf" class="btn-sm btn-primary">📥 Download PDF</button>
-                    <button id="btnPrintLabel" class="btn-sm btn-outline">🖨️ Print</button>
-                    <button id="btnExpandLabel" class="btn-sm btn-ghost">🔍 Expand</button>
+                    <button id="btnDownloadLabelPdf" class="btn-sm btn-primary">Download PDF</button>
+                    <button id="btnPrintLabel" class="btn-sm btn-outline">Print</button>
+                    <button id="btnExpandLabel" class="btn-sm btn-ghost">Expand</button>
                   </div>
                 </div>
 
@@ -341,8 +422,13 @@
                   <div id="labelPreviewContent" class="label-render-box"></div>
                 </div>
               </div>
-            </div>
 
+              <div class="wizard-footer-nav" style="margin-top: 24px;">
+                <button id="btnStartNewShipment" class="btn-primary">
+                  Create Another Shipment
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -356,12 +442,12 @@
       <div class="panel">
         <div class="panel-header">
           <div>
-            <h2>🧪 10-Scenario Shipping Evaluator & Test Case Dashboard</h2>
+            <h2>10-Scenario Shipping Evaluator &amp; Test Case Dashboard</h2>
             <p class="panel-desc">Run deterministic edge-case benchmarks covering volumetric penalties, unserviceable PINs, timeout reconciliations, and label validations.</p>
           </div>
           <div class="eval-actions">
-            <button id="btnRunAllScenarios" class="btn-primary">▶️ Run All 10 Scenarios</button>
-            <button id="btnClearTestRuns" class="btn-ghost">🗑️ Clear Runs History</button>
+            <button id="btnRunAllScenarios" class="btn-primary">Run All 10 Scenarios</button>
+            <button id="btnClearTestRuns" class="btn-ghost">Clear Runs History</button>
           </div>
         </div>
 
@@ -371,7 +457,7 @@
         <!-- Test Case Execution Log Table -->
         <div class="test-runs-section">
           <div class="section-header-row">
-            <h3>📋 Official Test Execution History (SQLite)</h3>
+            <h3>Official Test Execution History (SQLite)</h3>
             <span id="testRunsCountBadge" class="badge-count">0 Runs</span>
           </div>
           <div class="table-responsive">
@@ -403,7 +489,7 @@
       <div class="two-col-layout">
         <div class="panel">
           <div class="panel-header">
-            <h2>📦 3D Box Packaging Optimizer</h2>
+            <h2>3D Box Packaging Optimizer</h2>
           </div>
           <p class="panel-desc">Evaluate custom box alternatives across 6 orthogonal rotations to minimize dimensional weight charges.</p>
           
@@ -442,7 +528,7 @@
                   <input type="number" id="pkgTare" step="0.05" value="0.15">
                 </div>
               </div>
-              <button type="submit" class="btn-primary full-width">➕ Save Custom Box to Database</button>
+              <button type="submit" class="btn-primary full-width">Save Custom Box to Database</button>
             </form>
           </div>
         </div>
@@ -463,10 +549,10 @@
       <div class="panel">
         <div class="panel-header">
           <div>
-            <h2>🛡️ Immutable SQLite Audit Trail</h2>
+            <h2>Immutable SQLite Audit Trail</h2>
             <p class="panel-desc">All dispatch operations, quotes, freshness validations, and approvals recorded with sanitized secrets.</p>
           </div>
-          <button id="btnRefreshAudit" class="btn-primary">🔄 Refresh Logs</button>
+          <button id="btnRefreshAudit" class="btn-primary">Refresh Logs</button>
         </div>
 
         <div class="table-responsive">
@@ -497,7 +583,7 @@
     <div class="modal-card">
       <div class="modal-header">
         <h3 id="modalTitle">Modal Details</h3>
-        <button id="modalCloseBtn" class="modal-close">&times;</button>
+        <button id="modalCloseBtn" class="modal-close" aria-label="Close modal">&times;</button>
       </div>
       <div class="modal-body" id="modalBody"></div>
     </div>

@@ -8,9 +8,9 @@ courier eligibility checks, volumetric-weight calculations, rate comparison,
 ranking, uncertainty analysis, approval gating, and audit verification internally.
 
 Tabs:
-  1. 📦 Ship a Parcel (Unified 5-Step Guided Shipping Workflow)
-  2. 📋 My Shipments (Track shipments, view details, download labels & audit trail)
-  3. 🛠️ Advanced Tools (Packaging Analyzer, Stress Testing Lab, Capability Registry)
+  1.  Ship a Parcel (Unified 5-Step Guided Shipping Workflow)
+  2.  My Shipments (Track shipments, view details, download labels & audit trail)
+  3.  Advanced Tools (Packaging Analyzer, Stress Testing Lab, Capability Registry)
 """
 
 from __future__ import annotations
@@ -119,10 +119,95 @@ from src.ui.helpers import (
 # ── Page Configuration ────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Adaptive Shipping Intelligence Agent",
-    page_icon="📦",
+    page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ── Clean White & Deep Dark Blue Palette (Accessible, High-Contrast) ─────────
+st.markdown("""
+<style>
+    /* White background & dark typography */
+    .stApp {
+        background-color: #F8FAFC !important;
+        color: #0F172A !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }
+    
+    /* Top Header Bar */
+    header[data-testid="stHeader"] {
+        background-color: #0F172A !important;
+    }
+    
+    /* Headings */
+    h1, h2, h3, h4, h5, h6 {
+        color: #0F172A !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: #FFFFFF !important;
+        border-right: 1px solid #E2E8F0 !important;
+    }
+    
+    /* Primary Buttons: Deep Dark Blue / Navy */
+    button[kind="primary"], .stButton > button[kind="primary"] {
+        background-color: #1E3A8A !important;
+        color: #FFFFFF !important;
+        border: 1px solid #1E3A8A !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+    }
+    button[kind="primary"]:hover, .stButton > button[kind="primary"]:hover {
+        background-color: #0F172A !important;
+        border-color: #0F172A !important;
+        color: #FFFFFF !important;
+    }
+    
+    /* Secondary Buttons */
+    button[kind="secondary"], .stButton > button[kind="secondary"] {
+        background-color: #FFFFFF !important;
+        color: #1E3A8A !important;
+        border: 1.5px solid #1E3A8A !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+    }
+    button[kind="secondary"]:hover, .stButton > button[kind="secondary"]:hover {
+        background-color: #EFF6FF !important;
+        color: #0F172A !important;
+    }
+    
+    /* Form inputs */
+    input, select, textarea, div[data-baseweb="input"], div[data-baseweb="select"] {
+        background-color: #FFFFFF !important;
+        border-color: #CBD5E1 !important;
+        color: #0F172A !important;
+        border-radius: 6px !important;
+    }
+    
+    /* Expanders & Metrics */
+    div[data-testid="stExpander"] {
+        background-color: #FFFFFF !important;
+        border: 1px solid #E2E8F0 !important;
+        border-radius: 8px !important;
+    }
+    div[data-testid="stMetric"] {
+        background-color: #FFFFFF !important;
+        border: 1px solid #E2E8F0 !important;
+        border-radius: 8px !important;
+        padding: 12px !important;
+    }
+    div[data-testid="stMetricLabel"] {
+        color: #475569 !important;
+        font-weight: 600 !important;
+    }
+    div[data-testid="stMetricValue"] {
+        color: #1E3A8A !important;
+        font-weight: 700 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ── Shared SQLite database ──────────────────────────────────────────────────
 _DB_PATH = "shipping_agent.db"
@@ -198,21 +283,20 @@ _init_session()
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 def render_sidebar():
     with st.sidebar:
-        st.image("https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/1f4e6.svg", width=48)
         st.title("Adaptive Shipping\nIntelligence Agent")
         st.caption("Find a suitable courier, compare shipping costs, and prepare your shipment in a few simple steps.")
         st.divider()
         st.markdown("""
 **Guided Shipping Journey**
-1. 📦 **Enter Details** — Pickup PIN, Delivery PIN, Weight
-2. 🔍 **Compare Couriers** — Eligible rates & recommendations
-3. ✅ **Review & Approve** — 1-click verified approval
-4. 📄 **Get PDF Label** — Print-ready label with barcode & QR
+1.  **Enter Details** — Pickup PIN, Delivery PIN, Weight
+2.  **Compare Couriers** — Eligible rates & recommendations
+3. [PASS]  **Review & Approve** — 1-click verified approval
+4.  **Get PDF Label** — Print-ready label with barcode & QR
 """)
         st.divider()
 
         # ── Shipping Provider Mode Selector ──
-        st.markdown("**🔌 Shipping Provider**")
+        st.markdown("** Shipping Provider**")
         provider_mode_options = ["Demo Simulator", "ShipEngine Sandbox API"]
         curr_provider_mode = st.session_state.get("active_provider_mode", "demo")
         sel_idx = 1 if curr_provider_mode in ("shipengine", "shipengine_sandbox") else 0
@@ -240,7 +324,7 @@ def render_sidebar():
                 "**DEMO DATA MODE**\n\nAll courier rates shown are "
                 "synthetic and produced by the Demo Shipping Adapter. "
                 "They are NOT live carrier prices.",
-                icon="🔵",
+                icon=None,
             )
             st.caption("Provider: Demo Multi-Courier Adapter (Simulated)")
         else:
@@ -256,11 +340,11 @@ def render_sidebar():
             st.info(
                 "**SHIPENGINE SANDBOX**\n\nCommunicating with official "
                 "ShipEngine Sandbox REST API (`https://api.shipengine.com`).",
-                icon="🟢",
+                icon=None,
             )
             st.caption(f"Configured Key: `{mask_api_key(raw_key)}`")
 
-            if st.button("🧪 Test Connection", key="btn_test_shipengine", use_container_width=True):
+            if st.button("Test Connection", key="btn_test_shipengine", use_container_width=True):
                 with st.spinner("Pinging ShipEngine Sandbox API (/v1/carriers)..."):
                     se_adapter = ShipEngineAdapter(api_key=raw_key)
                     res = se_adapter.test_connection()
@@ -269,7 +353,7 @@ def render_sidebar():
             conn_res = st.session_state.get("shipengine_connection_status")
             if conn_res:
                 if conn_res.get("connected"):
-                    st.success(f"✅ Connected (HTTP {conn_res.get('status_code', 200)})")
+                    st.success(f"[PASS]  Connected (HTTP {conn_res.get('status_code', 200)})")
                     carrier_list = [
                         c.get("friendly_name") or c.get("nickname") or c.get("carrier_code")
                         for c in conn_res.get("carriers", [])
@@ -277,12 +361,12 @@ def render_sidebar():
                     if carrier_list:
                         st.caption(f"Carriers: {', '.join(carrier_list)}")
                 else:
-                    st.error(f"❌ {conn_res.get('message')}")
+                    st.error(f"[FAIL]  {conn_res.get('message')}")
             elif not is_valid_key:
-                st.caption(f"⚠️ {key_msg}")
+                st.caption(f"[NOTICE]  {key_msg}")
 
         st.divider()
-        st.markdown("**🎯 Evaluator 1-Click Scenarios**")
+        st.markdown("** Evaluator 1-Click Scenarios**")
         scenario_options = [
             "None (Manual Input)",
             "Demo A: Normal Parcel (Standard comparison & booking)",
@@ -329,7 +413,7 @@ def render_sidebar():
         if sc_id and sc_id in SCENARIO_METADATA:
             meta = SCENARIO_METADATA[sc_id]
             with st.container(border=True):
-                st.markdown(f"**🎯 {meta['full_title']}**")
+                st.markdown(f"** {meta['full_title']}**")
                 st.caption(meta["description"])
                 st.markdown(f"**Expected:** {meta['expected']}")
 
@@ -338,28 +422,28 @@ def render_sidebar():
                 test_res = sc_results.get(sc_id)
                 if test_res:
                     if test_res.status == ScenarioStatus.PASSED:
-                        st.success(f"✅ **Status: {test_res.status.value}**")
+                        st.success(f"[PASS]  **Status: {test_res.status.value}**")
                     elif test_res.status == ScenarioStatus.FAILED:
-                        st.error(f"❌ **Status: {test_res.status.value}**")
+                        st.error(f"[FAIL]  **Status: {test_res.status.value}**")
                     elif test_res.status == ScenarioStatus.ERROR:
-                        st.error(f"⚠️ **Status: {test_res.status.value}**")
+                        st.error(f"[NOTICE]  **Status: {test_res.status.value}**")
                     else:
-                        st.info(f"⚪ **Status: {test_res.status.value}**")
+                        st.info(f"[NOT RUN]  **Status: {test_res.status.value}**")
 
                     st.caption(f"**Actual:** {test_res.actual_outcome}")
-                    with st.expander("🔍 Inspect Test Evidence & Subcases", expanded=False):
+                    with st.expander("Inspect Test Evidence & Subcases", expanded=False):
                         if test_res.subcases:
                             for sc in test_res.subcases:
-                                icon = "✅" if sc.passed else "❌"
+                                icon = "[PASS] " if sc.passed else "[FAIL] "
                                 st.markdown(f"**{icon} {sc.subcase_id} — {sc.title}**")
                                 st.caption(f"Actual: {sc.actual}")
-                        st.caption(f"⏱️ Executed in {test_res.execution_time_ms} ms at {test_res.timestamp[:19]}Z")
+                        st.caption(f"Executed in {test_res.execution_time_ms} ms at {test_res.timestamp[:19]}Z")
                 else:
-                    st.info("⚪ **Status: NOT RUN**")
+                    st.info("[NOT RUN]  **Status: NOT RUN**")
 
                 btn_col1, btn_col2 = st.columns(2)
                 with btn_col1:
-                    if st.button("🚀 Load", use_container_width=True, help="Load this scenario inputs into the application form", key=f"btn_load_{sc_id.lower()}"):
+                    if st.button("Load", use_container_width=True, help="Load this scenario inputs into the application form", key=f"btn_load_{sc_id.lower()}"):
                         order_demo = meta["builder"]()
                         provider = DemoShippingAdapter(couriers=ALL_DEMO_COURIERS)
                         quotes_demo = provider.get_rates(order_demo)
@@ -420,7 +504,7 @@ def render_sidebar():
                         st.rerun()
 
                 with btn_col2:
-                    if st.button("🧪 Run Test", use_container_width=True, type="primary", help="Execute the deterministic test", key=f"btn_run_{sc_id.lower()}"):
+                    if st.button("Run Test", use_container_width=True, type="primary", help="Execute the deterministic test", key=f"btn_run_{sc_id.lower()}"):
                         suite = EvaluatorSuite(get_db())
                         res = suite.run_scenario(sc_id)
                         if "scenario_test_results" not in st.session_state:
@@ -428,16 +512,16 @@ def render_sidebar():
                         st.session_state["scenario_test_results"][sc_id] = res
                         st.rerun()
 
-                if st.button("🔄 Reset Scenario", use_container_width=True, help="Reset evaluator state for this scenario", key=f"btn_reset_{sc_id.lower()}"):
+                if st.button("Reset Scenario", use_container_width=True, help="Reset evaluator state for this scenario", key=f"btn_reset_{sc_id.lower()}"):
                     if "scenario_test_results" in st.session_state and sc_id in st.session_state["scenario_test_results"]:
                         del st.session_state["scenario_test_results"][sc_id]
                     st.session_state["active_demo_scenario"] = "None (Manual Input)"
                     st.rerun()
         else:
-            st.info("✍️ Manual Input Mode: Fill in parcel details and find couriers below.")
+            st.info("Manual Input Mode: Fill in parcel details and find couriers below.")
 
         st.divider()
-        if st.button("🔄 Reset Application", use_container_width=True):
+        if st.button("Reset Application", use_container_width=True):
             for k in list(st.session_state.keys()):
                 del st.session_state[k]
             _init_session()
@@ -460,7 +544,7 @@ def _render_ship_a_parcel_form():
             )
             ok_p_fmt, err_p_fmt = validate_pin_code(pickup_pin, pin_type="pickup")
             if pickup_pin and not ok_p_fmt:
-                st.caption(f":red[⚠️ {err_p_fmt}]")
+                st.caption(f":red[[NOTICE]  {err_p_fmt}]")
 
         with col2:
             delivery_pin = st.text_input(
@@ -472,7 +556,7 @@ def _render_ship_a_parcel_form():
             )
             ok_d_fmt, err_d_fmt = validate_pin_code(delivery_pin, pin_type="delivery")
             if delivery_pin and not ok_d_fmt:
-                st.caption(f":red[⚠️ {err_d_fmt}]")
+                st.caption(f":red[[NOTICE]  {err_d_fmt}]")
 
         # Revalidate whenever either PIN changes; do not reuse stale validation results
         last_seen_pins = st.session_state.get("_last_seen_pins")
@@ -491,7 +575,7 @@ def _render_ship_a_parcel_form():
         st.session_state["_last_seen_pins"] = current_pins
 
         st.markdown("---")
-        st.markdown("#### 📐 Mandatory Parcel Measurements")
+        st.markdown("####  Mandatory Parcel Measurements")
         st.caption("Length, width, height, and actual gross weight are strictly required before shipping rates can be calculated.")
 
         dim_mode = st.radio(
@@ -665,7 +749,7 @@ def _render_ship_a_parcel_form():
                     effective_hgt = best_opt.outer_dimensions.height_cm
                     effective_weight = round(float(cur_pwt) + best_opt.tare_weight_kg, 3)
                     st.info(
-                        f"💡 **Recommended Packaging: {best_opt.box_name}**  \n"
+                        f" **Recommended Packaging: {best_opt.box_name}**  \n"
                         f"• Outer Dimensions: `{effective_len} × {effective_wid} × {effective_hgt} cm`  \n"
                         f"• Packaging Tare: `+{best_opt.tare_weight_kg:.2f} kg`  \n"
                         f"• Packed Gross Weight: `{effective_weight:.2f} kg` (Net: {float(cur_pwt):.2f} kg + Tare: {best_opt.tare_weight_kg:.2f} kg)  \n"
@@ -676,7 +760,7 @@ def _render_ship_a_parcel_form():
                     effective_wid = cur_pw
                     effective_hgt = cur_ph
                     effective_weight = cur_pwt
-                    st.warning("⚠️ No standard catalog box fits this unpacked item. Outer product dimensions used as fallback.")
+                    st.warning("[NOTICE]  No standard catalog box fits this unpacked item. Outer product dimensions used as fallback.")
             else:
                 effective_len = cur_pl
                 effective_wid = cur_pw
@@ -698,7 +782,7 @@ def _render_ship_a_parcel_form():
             st.session_state["pickup_result"] = None
             st.session_state["packaging_results"] = None
             st.session_state["excluded_courier_codes"] = []
-            st.info("⚠️ Parcel dimensions or weight were changed. Previous quotes and recommendations cleared. Please click 'Find & Compare Couriers' to re-rate.")
+            st.info("[NOTICE]  Parcel dimensions or weight were changed. Previous quotes and recommendations cleared. Please click 'Find & Compare Couriers' to re-rate.")
         st.session_state["_last_seen_measurements"] = current_m
 
         st.markdown("---")
@@ -722,7 +806,7 @@ def _render_ship_a_parcel_form():
             )
 
         st.markdown("---")
-        st.markdown("#### 🎯 Shipping Preferences (Budget & Delivery Target)")
+        st.markdown("####  Shipping Preferences (Budget & Delivery Target)")
         st.caption("Tell us your budget limit and delivery deadline so our Smart Shipping Advisor can evaluate trade-offs and recommend the best courier.")
         pref_col1, pref_col2 = st.columns(2)
         with pref_col1:
@@ -746,7 +830,7 @@ def _render_ship_a_parcel_form():
                 )
                 st.session_state["pref_max_budget"] = float(b_val)
             else:
-                st.caption("ℹ️ Flexible budget: couriers will be evaluated to find the best available price.")
+                st.caption("ℹ Flexible budget: couriers will be evaluated to find the best available price.")
 
         with pref_col2:
             st.markdown("**Delivery Deadline**")
@@ -767,12 +851,12 @@ def _render_ship_a_parcel_form():
             )
             st.session_state["pref_delivery_deadline"] = chosen_deadline
             if chosen_deadline == "Flexible delivery time":
-                st.caption("ℹ️ Flexible delivery: standard and economy transit options are included.")
+                st.caption("ℹ Flexible delivery: standard and economy transit options are included.")
             else:
-                st.caption(f"⚡ We'll prioritize couriers delivering {chosen_deadline.lower()}.")
+                st.caption(f"We'll prioritize couriers delivering {chosen_deadline.lower()}.")
 
         # ── Address & Reference Details (Sensible Defaults) ──────────────────
-        with st.expander("👤 Sender & Recipient Contact Information (Optional)", expanded=False):
+        with st.expander("Sender & Recipient Contact Information (Optional)", expanded=False):
             st.caption("Customise shipping contact details. Sensible fulfillment defaults are pre-filled.")
             ac1, ac2 = st.columns(2)
             with ac1:
@@ -797,7 +881,7 @@ def _render_ship_a_parcel_form():
                 key="form_order_ref",
             )
 
-        submit_btn = st.button("🔍 Find & Compare Couriers", type="primary", use_container_width=True)
+        submit_btn = st.button("Find & Compare Couriers", type="primary", use_container_width=True)
 
     if submit_btn:
         ok_p, err_p = validate_pin_code(pickup_pin, pin_type="pickup")
@@ -837,7 +921,7 @@ def _render_ship_a_parcel_form():
 
         if errs:
             for e in errs:
-                st.error(f"❌ {e}")
+                st.error(f"[FAIL]  {e}")
             st.session_state["quotes"] = None
             st.session_state["selected_quote"] = None
             st.session_state["approval_given"] = False
@@ -847,11 +931,11 @@ def _render_ship_a_parcel_form():
         provider = get_provider(provider_mode)
         svc_ok, svc_msg, is_demo = provider.check_route_serviceability(pickup_pin, delivery_pin)
         if not svc_ok:
-            st.error(f"❌ {svc_msg}")
+            st.error(f"[FAIL]  {svc_msg}")
             if provider_mode == "demo":
-                st.caption("ℹ️ Demo Network Data: Route serviceability verified against Demo Shipping Adapter simulated network data (Non-official carrier verification).")
+                st.caption("ℹ Demo Network Data: Route serviceability verified against Demo Shipping Adapter simulated network data (Non-official carrier verification).")
             else:
-                st.caption(f"ℹ️ {provider.provider_name}: Route serviceability check failed.")
+                st.caption(f"ℹ {provider.provider_name}: Route serviceability check failed.")
             st.session_state["quotes"] = None
             st.session_state["selected_quote"] = None
             st.session_state["approval_given"] = False
@@ -906,7 +990,7 @@ def _render_ship_a_parcel_form():
             try:
                 quotes = provider.get_rates(order)
             except Exception as e:
-                st.error(f"❌ Rate fetch error from {provider.provider_name}: {e}")
+                st.error(f"[FAIL]  Rate fetch error from {provider.provider_name}: {e}")
                 st.session_state["quotes"] = None
                 st.session_state["selected_quote"] = None
                 st.session_state["approval_given"] = False
@@ -915,13 +999,13 @@ def _render_ship_a_parcel_form():
             eligible = [q for q in quotes if q.is_eligible and q.cost_breakdown]
             if not eligible:
                 if provider_mode == "demo":
-                    st.error("❌ Delivery to this PIN code is currently unavailable. Please check the PIN code or try another supported destination.")
-                    st.caption("ℹ️ Demo Network Data: No couriers in the simulated network can service this parcel to destination PIN.")
+                    st.error("[FAIL]  Delivery to this PIN code is currently unavailable. Please check the PIN code or try another supported destination.")
+                    st.caption("ℹ Demo Network Data: No couriers in the simulated network can service this parcel to destination PIN.")
                 else:
                     unsvc_reasons = [q.unserviceable_reason for q in quotes if q.unserviceable_reason]
                     reason_msg = unsvc_reasons[0] if unsvc_reasons else "ShipEngine Sandbox returned no eligible rates for this route and weight."
-                    st.error(f"❌ {reason_msg}")
-                    st.caption("ℹ️ ShipEngine Sandbox API: Zero eligible rates returned by connected carriers. No simulated fallback applied.")
+                    st.error(f"[FAIL]  {reason_msg}")
+                    st.caption("ℹ ShipEngine Sandbox API: Zero eligible rates returned by connected carriers. No simulated fallback applied.")
                 st.session_state["quotes"] = quotes
                 st.session_state["selected_quote"] = None
                 st.session_state["approval_given"] = False
@@ -1017,11 +1101,12 @@ def _render_ship_a_parcel_form():
             engine.run_decide(quotes, prefs, trace)
             st.session_state["decision_trace"] = trace
 
-        st.success(f"✅ Found eligible courier options for **PIN {pickup_pin} ➔ PIN {delivery_pin}** via {provider.provider_name}.")
+        st.success(f"[PASS]  Found eligible courier options for **PIN {pickup_pin} -> PIN {delivery_pin}** via {provider.provider_name}.")
         if provider_mode == "demo":
-            st.caption("ℹ️ Route serviceability verified against Demo Shipping Adapter simulated network data (Simulated Demo Data — not official carrier confirmation).")
+            st.caption("ℹ Route serviceability verified against Demo Shipping Adapter simulated network data (Simulated Demo Data — not official carrier confirmation).")
         else:
-            st.caption("ℹ️ Genuine rates and route confirmation retrieved directly from ShipEngine Sandbox REST API.")
+            st.caption("ℹ Genuine rates and route confirmation retrieved directly from ShipEngine Sandbox REST API.")
+        st.session_state["wizard_step"] = 2
         st.rerun()
 
 
@@ -1045,7 +1130,7 @@ def _render_rate_comparison():
         or order.dimensions.height_cm <= 0
         or order.parcel_weight_kg <= 0
     ):
-        st.error("❌ Valid parcel dimensions and actual gross weight (> 0) are required to compare courier rates.")
+        st.error("[FAIL]  Valid parcel dimensions and actual gross weight (> 0) are required to compare courier rates.")
         return
 
     st.divider()
@@ -1080,9 +1165,9 @@ def _render_rate_comparison():
 
     col_pref_info, _ = st.columns([3, 1])
     with col_pref_info:
-        st.caption(f"🎯 **Active Shipping Preferences:** {b_desc} | {d_desc}")
+        st.caption(f" **Active Shipping Preferences:** {b_desc} | {d_desc}")
 
-    with st.expander("⚙️ Edit Shipping Preferences (Budget & Speed)", expanded=False):
+    with st.expander("Edit Shipping Preferences (Budget & Speed)", expanded=False):
         ec1, ec2, ec3 = st.columns([2, 2, 1])
         with ec1:
             tweak_flex_b = st.checkbox(
@@ -1137,7 +1222,7 @@ def _render_rate_comparison():
     # ── Section 6: Dedicated "No exact match" experience ──
     if not advisor_result.is_exact_match:
         with st.container(border=True):
-            st.warning("### ⚠️ No exact match for your preferences")
+            st.warning("### [NOTICE]  No exact match for your preferences")
             st.markdown(
                 f"We couldn't find a verified courier that meets both your preferred budget (**{b_desc}**) "
                 f"and delivery deadline (**{d_desc}**). Here are the closest available alternatives based on trade-offs:"
@@ -1146,7 +1231,7 @@ def _render_rate_comparison():
             # Quick action adjustment buttons
             act_col1, act_col2, act_col3, act_col4 = st.columns(4)
             with act_col1:
-                if st.button("➕ Add ₹50 Budget", use_container_width=True, key="btn_qa_add_50"):
+                if st.button("Add ₹50 Budget", use_container_width=True, key="btn_qa_add_50"):
                     curr_b = st.session_state.get("pref_max_budget", 500.0)
                     st.session_state["pref_max_budget"] = curr_b + 50.0
                     st.session_state["pref_flexible_budget"] = False
@@ -1159,7 +1244,7 @@ def _render_rate_comparison():
                     st.session_state["approval_given"] = False
                     st.rerun()
             with act_col2:
-                if st.button("➕ Add ₹100 Budget", use_container_width=True, key="btn_qa_add_100"):
+                if st.button("Add ₹100 Budget", use_container_width=True, key="btn_qa_add_100"):
                     curr_b = st.session_state.get("pref_max_budget", 500.0)
                     st.session_state["pref_max_budget"] = curr_b + 100.0
                     st.session_state["pref_flexible_budget"] = False
@@ -1172,7 +1257,7 @@ def _render_rate_comparison():
                     st.session_state["approval_given"] = False
                     st.rerun()
             with act_col3:
-                if st.button("⏱️ Allow 1 More Day", use_container_width=True, key="btn_qa_add_day"):
+                if st.button("Allow 1 More Day", use_container_width=True, key="btn_qa_add_day"):
                     curr_d = DeliveryDeadlineOption.to_days(st.session_state.get("pref_delivery_deadline", "")) or 1
                     new_d = min(curr_d + 1, 3)
                     st.session_state["pref_delivery_deadline"] = DeliveryDeadlineOption.from_days(new_d)
@@ -1185,7 +1270,7 @@ def _render_rate_comparison():
                     st.session_state["approval_given"] = False
                     st.rerun()
             with act_col4:
-                if st.button("🔄 Flexible Deadline", use_container_width=True, key="btn_qa_flex_deadline"):
+                if st.button("Flexible Deadline", use_container_width=True, key="btn_qa_flex_deadline"):
                     st.session_state["pref_delivery_deadline"] = "Flexible delivery time"
                     user_prefs = UserShippingPreferences.create(
                         max_budget=st.session_state.get("pref_max_budget") if not st.session_state.get("pref_flexible_budget", True) else None,
@@ -1200,11 +1285,11 @@ def _render_rate_comparison():
             # 3 Closest Match Cards
             c_cards = []
             if advisor_result.best_compromise:
-                c_cards.append(("⚖️ Best Compromise", advisor_result.best_compromise, "Optimal trade-off for your constraints"))
+                c_cards.append(("Best Compromise", advisor_result.best_compromise, "Optimal trade-off for your constraints"))
             if advisor_result.lowest_cost_alternative:
-                c_cards.append(("💰 Lowest Cost", advisor_result.lowest_cost_alternative, "Cheapest confirmed option"))
+                c_cards.append(("Lowest Cost", advisor_result.lowest_cost_alternative, "Cheapest confirmed option"))
             if advisor_result.fastest_alternative:
-                c_cards.append(("⚡ Fastest Delivery", advisor_result.fastest_alternative, "Quickest transit SLA"))
+                c_cards.append(("Fastest Delivery", advisor_result.fastest_alternative, "Quickest transit SLA"))
 
             # Deduplicate by courier_code while keeping distinct category badges
             seen_codes = set()
@@ -1226,30 +1311,30 @@ def _render_rate_comparison():
                         st.markdown(f"**Transit:** {sla_txt}")
 
                         if comp.budget_overrun > 0:
-                            st.caption(f":red[⚠️ Exceeds budget by {comp.currency} {comp.budget_overrun:,.2f}]")
+                            st.caption(f":red[[NOTICE]  Exceeds budget by {comp.currency} {comp.budget_overrun:,.2f}]")
                         elif comp.meets_budget:
-                            st.caption(f":green[✅ Within budget (saves {comp.currency} {comp.budget_savings:,.2f})]")
+                            st.caption(f":green[[PASS]  Within budget (saves {comp.currency} {comp.budget_savings:,.2f})]")
 
                         if comp.delay_days > 0:
-                            st.caption(f":orange[⚠️ Misses deadline by {comp.delay_days} day(s)]")
+                            st.caption(f":orange[[NOTICE]  Misses deadline by {comp.delay_days} day(s)]")
                         elif comp.meets_deadline:
-                            st.caption(f":green[✅ Meets deadline]")
+                            st.caption(f":green[[PASS]  Meets deadline]")
 
-                        st.markdown(f"- 🟢 **Advantage:** {comp.main_advantage}")
-                        st.markdown(f"- 🟠 **Disadvantage:** {comp.main_disadvantage}")
+                        st.markdown(f"- [LIVE]  **Advantage:** {comp.main_advantage}")
+                        st.markdown(f"- [PENDING]  **Disadvantage:** {comp.main_disadvantage}")
                         st.caption(comp.data_verification_text)
 
                         is_cur_sel = bool(selected_quote and selected_quote.quote_id == comp.quote.quote_id)
                         if is_cur_sel:
-                            st.info("✅ **Currently Selected**")
+                            st.info("[PASS]  **Currently Selected**")
                         else:
-                            if st.button("👉 Choose this courier", key=f"btn_choose_cm_{comp.courier_code}_{idx}", use_container_width=True):
+                            if st.button("Choose this courier", key=f"btn_choose_cm_{comp.courier_code}_{idx}", use_container_width=True):
                                 st.session_state["selected_quote"] = comp.quote
                                 st.session_state["approval_given"] = False
                                 st.session_state["approved_record"] = None
                                 st.rerun()
 
-    # ── "Our Recommendation" Section ──
+    # ── "Our Recommendation"Section ──
     rec_comp = None
     if primary_quote:
         rec_comp = next((c for c in advisor_result.all_evaluated if c.courier_code == primary_quote.courier_code), None)
@@ -1264,16 +1349,16 @@ def _render_rate_comparison():
         is_user_switched = bool(primary_quote and selected_quote and primary_quote.quote_id != selected_quote.quote_id)
 
         with st.container(border=True):
-            header_prefix = "🏆 Primary Recommendation" if not is_user_switched else "🚚 Selected Courier"
+            header_prefix = "Primary Recommendation" if not is_user_switched else "Selected Courier"
             st.markdown(f"### {header_prefix}: {display_comp.courier_name}")
 
             if is_user_switched and primary_quote:
                 st.info(
-                    f"ℹ️ **Alternative Selected:** You have selected `{display_comp.courier_name}`. "
+                    f"ℹ **Alternative Selected:** You have selected `{display_comp.courier_name}`. "
                     f"Our primary recommendation based on your preferences was `{primary_quote.courier_name}`.",
-                    icon="🔄",
+                    icon=None,
                 )
-                if st.button("🔄 Revert to Recommended Courier", key="btn_revert_to_primary", use_container_width=True):
+                if st.button("Revert to Recommended Courier", key="btn_revert_to_primary", use_container_width=True):
                     st.session_state["selected_quote"] = primary_quote
                     st.session_state["approval_given"] = False
                     st.session_state["approved_record"] = None
@@ -1284,7 +1369,7 @@ def _render_rate_comparison():
                 st.markdown(f"**Service:** {display_comp.service_type}")
                 st.markdown(f"**Summary:** {advisor_result.summary_explanation if not is_user_switched else display_comp.plain_language_hint}")
                 if advisor_result.trade_off_explanation and not is_user_switched:
-                    st.caption(f"⚖️ {advisor_result.trade_off_explanation}")
+                    st.caption(f" {advisor_result.trade_off_explanation}")
             with rec_col2:
                 st.markdown(f"**Landed Cost:** **{fmt_inr(display_comp.total_cost, currency=display_comp.currency)}**")
                 if display_comp.estimated_delivery_days:
@@ -1295,31 +1380,31 @@ def _render_rate_comparison():
                 wb = display_comp.quote.weight_result
                 if wb.is_volumetric_penalty:
                     st.warning(
-                        f"⚠️ **Volumetric Weight Penalty Applies:** Dimensional weight ({wb.volumetric_weight_kg:.2f} kg) "
+                        f"[NOTICE]  **Volumetric Weight Penalty Applies:** Dimensional weight ({wb.volumetric_weight_kg:.2f} kg) "
                         f"exceeds actual gross weight ({wb.actual_weight_kg:.2f} kg). "
                         f"Billed at **{wb.chargeable_weight_kg:.2f} kg** (Carrier Divisor: {wb.divisor_used:,.0f}).",
-                        icon="⚖️",
+                        icon=None,
                     )
                 else:
                     st.info(
-                        f"⚖️ **Billed by Actual Gross Weight:** {wb.actual_weight_kg:.2f} kg "
+                        f" **Billed by Actual Gross Weight:** {wb.actual_weight_kg:.2f} kg "
                         f"(Volumetric weight is {wb.volumetric_weight_kg:.2f} kg, divisor {wb.divisor_used:,.0f}).",
                     )
 
-            # Redesigned "Why this recommendation?" Section
-            st.markdown("#### 💡 Why this courier?")
-            st.markdown(f"- 🎯 **Selection Reason:** {advisor_result.summary_explanation if not is_user_switched else display_comp.plain_language_hint}")
-            st.markdown(f"- 💰 **Budget Analysis:** {display_comp.budget_status_text}")
-            st.markdown(f"- ⏱️ **Delivery Timeline:** {display_comp.deadline_status_text}")
-            st.markdown(f"- 🌟 **Main Advantage:** {display_comp.main_advantage}")
-            st.markdown(f"- ⚠️ **Key Limitation / Trade-off:** {display_comp.main_disadvantage}")
-            st.markdown(f"- 🛡️ **Data Verification:** {display_comp.data_verification_text}")
+            # Redesigned "Why this recommendation?"Section
+            st.markdown("####  Why this courier?")
+            st.markdown(f"-  **Selection Reason:** {advisor_result.summary_explanation if not is_user_switched else display_comp.plain_language_hint}")
+            st.markdown(f"-  **Budget Analysis:** {display_comp.budget_status_text}")
+            st.markdown(f"-  **Delivery Timeline:** {display_comp.deadline_status_text}")
+            st.markdown(f"-  **Main Advantage:** {display_comp.main_advantage}")
+            st.markdown(f"- [NOTICE]  **Key Limitation / Trade-off:** {display_comp.main_disadvantage}")
+            st.markdown(f"-  **Data Verification:** {display_comp.data_verification_text}")
 
     # ── Compare Alternative Couriers Section ──
     eligible_comps = [c for c in advisor_result.all_evaluated if c.is_serviceable]
     if eligible_comps:
         st.markdown("---")
-        st.markdown("#### 📊 Compare All Available Couriers")
+        st.markdown("####  Compare All Available Couriers")
         st.caption("Review differences in cost, speed, and preference alignment against the recommendation.")
 
         for comp in eligible_comps:
@@ -1332,16 +1417,16 @@ def _render_rate_comparison():
                     # Courier title and badges
                     badge_items = []
                     if is_primary:
-                        badge_items.append("🏆 Primary Recommendation")
+                        badge_items.append("Primary Recommendation")
                     if is_active:
-                        badge_items.append("✅ Active Selected")
+                        badge_items.append("[PASS]  Active Selected")
                     for t in comp.tags:
                         if t == "LOWEST_COST":
-                            badge_items.append("💰 Lowest Cost")
+                            badge_items.append("Lowest Cost")
                         elif t == "FASTEST_DELIVERY":
-                            badge_items.append("⚡ Fastest Delivery")
+                            badge_items.append("Fastest Delivery")
                         elif t == "BEST_COMPROMISE":
-                            badge_items.append("⚖️ Best Compromise")
+                            badge_items.append("Best Compromise")
 
                     badge_str = f" `{'` `'.join(badge_items)}`" if badge_items else ""
                     st.markdown(f"**{comp.courier_name}** ({comp.service_type}){badge_str}")
@@ -1370,22 +1455,22 @@ def _render_rate_comparison():
                     # Compliance pills
                     c_pills = []
                     if comp.meets_budget:
-                        c_pills.append(f":green[✅ Fits Budget ({comp.currency} {comp.total_cost:,.2f})]")
+                        c_pills.append(f":green[[PASS]  Fits Budget ({comp.currency} {comp.total_cost:,.2f})]")
                     else:
-                        c_pills.append(f":red[⚠️ Exceeds Budget (+{comp.currency} {comp.budget_overrun:,.2f})]")
+                        c_pills.append(f":red[[NOTICE]  Exceeds Budget (+{comp.currency} {comp.budget_overrun:,.2f})]")
 
                     if comp.meets_deadline:
-                        c_pills.append(f":green[✅ Meets Deadline ({comp.estimated_delivery_days}d)]")
+                        c_pills.append(f":green[[PASS]  Meets Deadline ({comp.estimated_delivery_days}d)]")
                     elif comp.delay_days > 0:
-                        c_pills.append(f":orange[⚠️ Late (+{comp.delay_days}d)]")
+                        c_pills.append(f":orange[[NOTICE]  Late (+{comp.delay_days}d)]")
                     else:
-                        c_pills.append(":gray[⚪ SLA Unverified]")
+                        c_pills.append(":gray[[NOT RUN]  SLA Unverified]")
 
                     st.markdown(" ".join(c_pills))
 
                     # Advantage / Disadvantage
-                    st.markdown(f"- 🟢 **Advantage:** {comp.main_advantage}")
-                    st.markdown(f"- 🟠 **Disadvantage:** {comp.main_disadvantage}")
+                    st.markdown(f"- [LIVE]  **Advantage:** {comp.main_advantage}")
+                    st.markdown(f"- [PENDING]  **Disadvantage:** {comp.main_disadvantage}")
 
                 with col_right:
                     st.markdown(f"**{fmt_inr(comp.total_cost, currency=comp.currency)}**")
@@ -1395,9 +1480,9 @@ def _render_rate_comparison():
                         st.caption("Standard SLA")
 
                     if is_active:
-                        st.info("✅ **Selected**")
+                        st.info("[PASS]  **Selected**")
                     else:
-                        if st.button("👉 Choose this courier", key=f"btn_choose_courier_{comp.courier_code}", use_container_width=True):
+                        if st.button("Choose this courier", key=f"btn_choose_courier_{comp.courier_code}", use_container_width=True):
                             st.session_state["selected_quote"] = comp.quote
                             st.session_state["approval_given"] = False
                             st.session_state["approved_record"] = None
@@ -1407,14 +1492,14 @@ def _render_rate_comparison():
     # Ineligible Couriers (Cleanly Hidden in Expander)
     ineligible = advisor_result.unserviceable
     if ineligible:
-        with st.expander(f"❌ Unavailable Couriers ({len(ineligible)})", expanded=False):
+        with st.expander(f"[FAIL]  Unavailable Couriers ({len(ineligible)})", expanded=False):
             st.caption("These couriers cannot service this parcel due to regional limits or carrier constraints.")
             for q in ineligible:
                 reason = q.unserviceable_reason or "Route or size restriction not supported."
                 st.markdown(f"- **{q.courier_name}**: :red[Not available for this parcel] — _{reason}_")
 
     # ── Technical Details & Audit Expander ──
-    with st.expander("🔬 Technical Details & Calculations", expanded=False):
+    with st.expander("Technical Details & Calculations", expanded=False):
         st.caption("Detailed engineering specifications, volumetric weights, and audit decision steps.")
         girth_val = compute_girth(order.dimensions)
         l_plus_g = compute_length_plus_girth(order.dimensions)
@@ -1449,7 +1534,7 @@ def _render_review_and_approve_section():
     with st.container(border=True):
         rc1, rc2 = st.columns(2)
         with rc1:
-            st.markdown(f"**Route:** PIN `{order.sender.pin_code}` ➔ PIN `{order.recipient.pin_code}`")
+            st.markdown(f"**Route:** PIN `{order.sender.pin_code}` -> PIN `{order.recipient.pin_code}`")
             st.markdown(f"**Recipient:** {order.recipient.name}, {order.recipient.city} ({order.recipient.state})")
             st.markdown(f"**Parcel Weight:** {order.parcel_weight_kg:.2f} kg ({order.dimensions.length_cm:.1f}×{order.dimensions.width_cm:.1f}×{order.dimensions.height_cm:.1f} cm)")
         with rc2:
@@ -1465,7 +1550,7 @@ def _render_review_and_approve_section():
     # Freshness check
     freshness = check_quote_freshness(selected_quote, max_age_seconds=900)
     if not freshness.is_fresh:
-        st.error(f"⛔ Quote expired ({freshness.explanation}). Please click 'Find & Compare Couriers' above to refresh rates.")
+        st.error(f"Quote expired ({freshness.explanation}). Please click 'Find & Compare Couriers' above to refresh rates.")
         return
 
     # Mandatory measurements validation guard before approval
@@ -1476,7 +1561,7 @@ def _render_review_and_approve_section():
         order.parcel_weight_kg,
     )
     if not ok_m_gate:
-        st.error(f"⛔ Mandatory measurements missing or invalid: {errs_m_gate[0] if errs_m_gate else 'Invalid measurements'}. Approval blocked.")
+        st.error(f"Mandatory measurements missing or invalid: {errs_m_gate[0] if errs_m_gate else 'Invalid measurements'}. Approval blocked.")
         return
 
     # Route validation and serviceability gating before approval
@@ -1487,7 +1572,7 @@ def _render_review_and_approve_section():
     svc_ok_gate, svc_msg_gate, _ = provider_gate.check_route_serviceability(order.sender.pin_code, order.recipient.pin_code)
 
     if not ok_p_gate or not ok_d_gate or not svc_ok_gate:
-        st.error(f"⛔ Route validation error: {err_p_gate or err_d_gate or svc_msg_gate}. Approval and shipment creation blocked.")
+        st.error(f"Route validation error: {err_p_gate or err_d_gate or svc_msg_gate}. Approval and shipment creation blocked.")
         return
 
     # Preference Trade-off Warning & Required Confirmation Gate
@@ -1511,25 +1596,25 @@ def _render_review_and_approve_section():
     tradeoff_confirmed = True
     if pref_violation_reasons:
         with st.container(border=True):
-            st.warning("⚠️ **Notice: Selected Courier Does Not Meet All Your Shipping Preferences**")
+            st.warning("[NOTICE]  **Notice: Selected Courier Does Not Meet All Your Shipping Preferences**")
             for r in pref_violation_reasons:
-                st.markdown(f"- ⚠️ {r}")
+                st.markdown(f"- [NOTICE]  {r}")
             st.caption("You may still proceed with booking this courier, but explicit confirmation is required.")
             tradeoff_confirmed = st.checkbox(
-                "☑️ I confirm and accept these budget / delivery trade-offs for my shipment",
+                "I confirm and accept these budget / delivery trade-offs for my shipment",
                 value=st.session_state.get("user_confirmed_preference_tradeoff", False),
                 key="chk_confirm_tradeoff",
             )
             st.session_state["user_confirmed_preference_tradeoff"] = tradeoff_confirmed
 
     # One explicit action
-    if st.button("🚀 Approve and Create Shipment", type="primary", use_container_width=True, key="btn_approve_and_dispatch"):
+    if st.button("Approve and Create Shipment", type="primary", use_container_width=True, key="btn_approve_and_dispatch"):
         if pref_violation_reasons and not tradeoff_confirmed:
-            st.error("⛔ Please confirm that you accept the budget/delivery trade-offs above before proceeding to shipment approval.")
+            st.error("Please confirm that you accept the budget/delivery trade-offs above before proceeding to shipment approval.")
             return
 
         if not ok_m_gate or not ok_p_gate or not ok_d_gate or not svc_ok_gate:
-            st.error(f"⛔ Cannot dispatch: {errs_m_gate[0] if not ok_m_gate and errs_m_gate else (err_p_gate or err_d_gate or svc_msg_gate)}")
+            st.error(f"Cannot dispatch: {errs_m_gate[0] if not ok_m_gate and errs_m_gate else (err_p_gate or err_d_gate or svc_msg_gate)}")
             return
 
         db, audit, idem, fsm, dispatch_service = get_services()
@@ -1611,7 +1696,7 @@ def _render_review_and_approve_section():
 
 # ── Step 4 & 5: Completion & PDF Label Download ──────────────────────────────
 if hasattr(st, "dialog"):
-    @st.dialog("🔍 Full-Size Shipping Label Preview", width="large")
+    @st.dialog("Full-Size Shipping Label Preview", width="large")
     def _render_full_label_dialog(preview_html_str: str, pdf_data: Optional[bytes], clean_awb: str, page_format_val: str):
         st.caption(f"Unscaled High-Resolution Preview • Paper Format: {page_format_val} • AWB: {clean_awb.replace('.pdf', '')}")
         st.markdown(
@@ -1626,7 +1711,7 @@ if hasattr(st, "dialog"):
         )
         if pdf_data and is_valid_pdf(pdf_data):
             st.download_button(
-                label=f"📥 Download Original PDF Shipping Label ({page_format_val})",
+                label=f"Download Original PDF Shipping Label ({page_format_val})",
                 data=pdf_data,
                 file_name=clean_awb,
                 mime="application/pdf",
@@ -1639,7 +1724,7 @@ else:
 
 
 def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuote, dispatch_result: Any):
-    st.success("🎉 **Your shipment is ready**")
+    st.success(" **Your shipment is ready**")
 
     is_demo = getattr(selected_quote, "is_demo_data", True)
     awb_label = "AWB / Tracking (DEMO)" if is_demo else "AWB / Tracking (ShipEngine Sandbox)"
@@ -1666,7 +1751,7 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
     wt_delta = f"Actual: {dead_wt:.2f} kg" if vol_wt and vol_wt > dead_wt else None
     m3.metric("Billed Weight", f"{billed_wt:.2f} kg", delta=wt_delta, delta_color="inverse")
     report = st.session_state.get("verification_report")
-    ver_status_val = "✅ VERIFIED"
+    ver_status_val = "[PASS]  VERIFIED"
     if report:
         st_val = getattr(report.overall_status, "value", str(report.overall_status)).upper()
         is_demo_lbl = bool(
@@ -1674,51 +1759,51 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
             and getattr(report.label_details, "is_demo_label", False)
         )
         if st_val in ("VERIFIED", "PASS"):
-            ver_status_val = "🏷️ DEMO VERIFIED" if is_demo_lbl else "✅ VERIFIED"
+            ver_status_val = "DEMO VERIFIED" if is_demo_lbl else "[PASS]  VERIFIED"
         elif st_val in ("FAILED", "FAIL"):
-            ver_status_val = "❌ FAILED"
+            ver_status_val = "[FAIL]  FAILED"
         elif st_val == "PENDING":
-            ver_status_val = "⏳ PENDING"
+            ver_status_val = "PENDING"
         elif st_val in ("UNSUPPORTED",):
-            ver_status_val = "⚪ UNSUPPORTED"
+            ver_status_val = "[NOT RUN]  UNSUPPORTED"
         elif st_val in ("DEMO ONLY", "DEMO_ONLY"):
-            ver_status_val = "🏷️ DEMO ONLY"
+            ver_status_val = "DEMO ONLY"
         elif st_val in ("NOT VERIFIED", "NOT_VERIFIED", "UNVERIFIED"):
-            ver_status_val = "⚠️ UNVERIFIED"
+            ver_status_val = "[NOTICE]  UNVERIFIED"
         else:
-            ver_status_val = f"⚠️ {st_val}"
+            ver_status_val = f"[NOTICE]  {st_val}"
     m4.metric("Verification Status", ver_status_val)
 
     # Carrier Pickup Schedule
     pickup_res = st.session_state.get("pickup_result")
     if pickup_res:
         with st.container(border=True):
-            st.markdown(f"🚚 **Carrier Pickup Scheduled:** Date `{pickup_res.scheduled_date}` | Window `{pickup_res.time_window}` | Ref `{pickup_res.pickup_reference}`")
+            st.markdown(f" **Carrier Pickup Scheduled:** Date `{pickup_res.scheduled_date}` | Window `{pickup_res.time_window}` | Ref `{pickup_res.pickup_reference}`")
 
     # 5-Point Verification Badges & Label Provenance
     if report:
         if getattr(report, "label_details", None) and getattr(report.label_details, "is_demo_label", False):
-            st.info(f"ℹ️ **Label Verification Notice:** {report.label_details.summary_message}")
+            st.info(f"ℹ **Label Verification Notice:** {report.label_details.summary_message}")
 
         status_str = getattr(report.overall_status, "value", str(report.overall_status)).upper()
         all_ok = (status_str in ("VERIFIED", "PASS"))
         expander_title = (
-            "🛡️ 5-Point Independent Verification Checks (All Checkpoints Verified)"
+            "5-Point Independent Verification Checks (All Checkpoints Verified)"
             if all_ok
-            else f"🛡️ 5-Point Independent Verification Checks ({status_str})"
+            else f"5-Point Independent Verification Checks ({status_str})"
         )
         with st.expander(expander_title, expanded=False):
             for c in report.checks:
                 c_status_str = getattr(c.status, "value", str(c.status)).upper()
                 if c.passed:
-                    check_icon = "🏷️" if c_status_str in ("DEMO ONLY", "DEMO_ONLY") else "✅"
+                    check_icon = "" if c_status_str in ("DEMO ONLY", "DEMO_ONLY") else "[PASS] "
                 else:
                     if c_status_str in ("UNSUPPORTED",):
-                        check_icon = "⚪"
+                        check_icon = "[NOT RUN] "
                     elif c_status_str in ("NOT VERIFIED", "NOT_VERIFIED", "UNVERIFIED"):
-                        check_icon = "🟠"
+                        check_icon = "[PENDING] "
                     else:
-                        check_icon = "❌"
+                        check_icon = "[FAIL] "
 
                 st.markdown(f"**{check_icon} {c.criterion_name}** (`{c_status_str}`)")
                 st.caption(f"{c.details} (Observed: `{c.observed_value}`)")
@@ -1726,17 +1811,17 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
                 # If this check has detailed subchecks, render honest separated indicators
                 if getattr(c, "subchecks", None):
                     with st.container(border=True):
-                        st.markdown("##### 🔍 Label Verification Breakdown & Provenance")
+                        st.markdown("#####  Label Verification Breakdown & Provenance")
                         sub_cols = st.columns(2)
                         for sc_idx, sc in enumerate(c.subchecks):
                             with sub_cols[sc_idx % 2]:
                                 sc_st = str(sc.get("status", "NOT VERIFIED")).upper()
                                 badge_icon = (
-                                    "🟢 PASS" if sc_st in ("PASS", "VERIFIED")
-                                    else "🔵 DEMO ONLY" if sc_st in ("DEMO ONLY", "DEMO_ONLY")
-                                    else "⚪ UNSUPPORTED" if sc_st == "UNSUPPORTED"
-                                    else "🟠 NOT VERIFIED" if sc_st in ("NOT VERIFIED", "NOT_VERIFIED", "UNVERIFIED")
-                                    else "🔴 FAIL"
+                                    "[LIVE]  PASS" if sc_st in ("PASS", "VERIFIED")
+                                    else "[DEMO]  DEMO ONLY" if sc_st in ("DEMO ONLY", "DEMO_ONLY")
+                                    else "[NOT RUN]  UNSUPPORTED" if sc_st == "UNSUPPORTED"
+                                    else "[PENDING]  NOT VERIFIED" if sc_st in ("NOT VERIFIED", "NOT_VERIFIED", "UNVERIFIED")
+                                    else "[ERROR]  FAIL"
                                 )
                                 st.markdown(f"**{badge_icon}** — {sc.get('name')}")
                                 st.caption(sc.get("details", ""))
@@ -1744,7 +1829,7 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
 
     # ── PDF Label Generation & Download ──
     st.divider()
-    st.subheader("🏷️ Shipping Label")
+    st.subheader("Shipping Label")
     st.caption("Print-ready carrier shipping label formatted with verified routing, specifications, vector Code128 barcode, and 2D QR code.")
 
     col_fmt, col_btn = st.columns([1, 2])
@@ -1768,7 +1853,7 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
             page_format=page_format_val,
         )
     except Exception as e:
-        st.error(f"⚠️ Error generating PDF label: {e}")
+        st.error(f"[NOTICE]  Error generating PDF label: {e}")
 
     clean_awb = sanitize_label_filename(dispatch_result.tracking_number, extension="pdf")
 
@@ -1790,7 +1875,7 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
         with act_col1:
             if pdf_bytes and is_valid_pdf(pdf_bytes):
                 st.download_button(
-                    label=f"📥 Download PDF Label ({page_format_val})",
+                    label=f"Download PDF Label ({page_format_val})",
                     data=pdf_bytes,
                     file_name=clean_awb,
                     mime="application/pdf",
@@ -1799,14 +1884,14 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
                     key="btn_download_pdf_ready",
                 )
         with act_col2:
-            if st.button("🔍 Expand Preview", use_container_width=True, key="btn_expand_label_preview"):
+            if st.button("Expand Preview", use_container_width=True, key="btn_expand_label_preview"):
                 if _render_full_label_dialog:
                     _render_full_label_dialog(preview_html, pdf_bytes, clean_awb, page_format_val)
                 else:
                     st.session_state["inline_preview_expanded"] = not st.session_state.get("inline_preview_expanded", False)
 
         if dispatch_result.label_data and str(dispatch_result.label_data).startswith("http"):
-            st.link_button("🌐 Open Official Carrier Label (PDF)", str(dispatch_result.label_data), use_container_width=True)
+            st.link_button("Open Official Carrier Label (PDF)", str(dispatch_result.label_data), use_container_width=True)
 
     # ── Centered, Compact, Scroll-Friendly Preview Container ──
     # Bounded to ~480px max-height to eliminate excessive vertical scrolling
@@ -1835,7 +1920,7 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
     st.markdown(compact_preview_html, unsafe_allow_html=True)
 
     # Collapsible full-size preview expander (collapsed by default to prevent vertical stretching)
-    with st.expander("🔍 Full-Size Unscaled Label (100% Zoom)", expanded=st.session_state.get("inline_preview_expanded", False)):
+    with st.expander("Full-Size Unscaled Label (100% Zoom)", expanded=st.session_state.get("inline_preview_expanded", False)):
         st.markdown(
             f"""
             <div style="display: flex; justify-content: center; align-items: center; width: 100%; padding: 8px; overflow-x: auto;">
@@ -1848,7 +1933,7 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
         )
 
     st.divider()
-    if st.button("🔄 Ship Another Parcel", use_container_width=True):
+    if st.button("Ship Another Parcel", use_container_width=True):
         for k in ["order", "quotes", "selected_quote", "dispatch_result", "verification_report", "pickup_result", "decision_trace", "active_demo_scenario", "approved_record"]:
             st.session_state.pop(k, None)
         st.session_state["approval_given"] = False
@@ -1857,22 +1942,72 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
 
 # ── Unified Guided Workflow Orchestrator ─────────────────────────────────────
 def render_shipping_workflow():
+    if "wizard_step" not in st.session_state:
+        st.session_state["wizard_step"] = 1
+
     order = st.session_state.get("order")
+    quotes = st.session_state.get("quotes") or []
     selected_quote = st.session_state.get("selected_quote")
     dispatch_result = st.session_state.get("dispatch_result")
 
-    # If dispatched, show completion directly
+    # If dispatched successfully, automatically advance to Step 4
     if dispatch_result and getattr(dispatch_result, "status", None) == ShipmentStatus.CREATED and order and selected_quote:
-        _render_shipment_ready_section(order, selected_quote, dispatch_result)
-        return
+        st.session_state["wizard_step"] = 4
 
-    # Step 1: Input form
-    _render_ship_a_parcel_form()
+    current_step = st.session_state.get("wizard_step", 1)
 
-    # Step 2 & 3: Comparison & Approval
-    if st.session_state.get("quotes") and st.session_state.get("order"):
+    # ── Wizard Stepper Navigation ──
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("Step 1: Dimensions", use_container_width=True, type="primary" if current_step == 1 else "secondary", key="wz_btn_1"):
+            st.session_state["wizard_step"] = 1
+            st.rerun()
+    with c2:
+        btn_type = "primary" if current_step == 2 else "secondary"
+        has_rates = bool(quotes and order)
+        if st.button("Step 2: Carrier Rates", use_container_width=True, type=btn_type, disabled=not has_rates, key="wz_btn_2"):
+            st.session_state["wizard_step"] = 2
+            st.rerun()
+    with c3:
+        btn_type = "primary" if current_step == 3 else "secondary"
+        has_quote = bool(quotes and order and selected_quote)
+        if st.button("Step 3: Approval Gate", use_container_width=True, type=btn_type, disabled=not has_quote, key="wz_btn_3"):
+            st.session_state["wizard_step"] = 3
+            st.rerun()
+    with c4:
+        btn_type = "primary" if current_step == 4 else "secondary"
+        has_dispatched = bool(dispatch_result and getattr(dispatch_result, "status", None) == ShipmentStatus.CREATED)
+        if st.button("Step 4: Label Ready", use_container_width=True, type=btn_type, disabled=not has_dispatched, key="wz_btn_4"):
+            st.session_state["wizard_step"] = 4
+            st.rerun()
+
+    st.markdown("<hr style='margin-top:2px;margin-bottom:18px;border-color:#CBD5E1;'>", unsafe_allow_html=True)
+
+    # ── Render Only Current Window Panel ──
+    if current_step == 1:
+        _render_ship_a_parcel_form()
+    elif current_step == 2:
         _render_rate_comparison()
+        nav_c1, nav_c2 = st.columns([1, 1])
+        with nav_c1:
+            if st.button("Back to Dimensions", use_container_width=True, key="btn_wz_back_1"):
+                st.session_state["wizard_step"] = 1
+                st.rerun()
+        with nav_c2:
+            if st.button("Proceed to Approval Gate", type="primary", use_container_width=True, disabled=selected_quote is None, key="btn_wz_next_3"):
+                st.session_state["wizard_step"] = 3
+                st.rerun()
+    elif current_step == 3:
         _render_review_and_approve_section()
+        if st.button("Back to Rates", use_container_width=True, key="btn_wz_back_2"):
+            st.session_state["wizard_step"] = 2
+            st.rerun()
+    elif current_step == 4:
+        if order and selected_quote and dispatch_result:
+            _render_shipment_ready_section(order, selected_quote, dispatch_result)
+        else:
+            st.session_state["wizard_step"] = 1
+            st.rerun()
 
 
 def render_order_entry():
@@ -1891,12 +2026,12 @@ def render_approval_dispatch():
     elif order and selected_quote:
         _render_review_and_approve_section()
     else:
-        st.info("ℹ️ Enter shipment details in 'Ship a Parcel' to generate and approve shipping quotes.")
+        st.info("ℹ Enter shipment details in 'Ship a Parcel' to generate and approve shipping quotes.")
 
 
 # ── Advanced Tool 1: Packaging Optimizer ─────────────────────────────────────
 def render_packaging_optimizer():
-    st.subheader("📦 Comparative Packaging Analyzer & Custom Box Builder")
+    st.subheader("Comparative Packaging Analyzer & Custom Box Builder")
     st.caption("Evaluate 6-orthogonal rotations, internal cavities, and comparative volumetric freight savings.")
 
     db = get_db()
@@ -1915,7 +2050,7 @@ def render_packaging_optimizer():
             is_cod=False,
         )
 
-    with st.expander("➕ Add Custom-Size Packaging", expanded=False):
+    with st.expander("Add Custom-Size Packaging", expanded=False):
         with st.form("custom_packaging_form"):
             c1, c2 = st.columns(2)
             with c1:
@@ -1939,7 +2074,7 @@ def render_packaging_optimizer():
             with t3:
                 cp_tare = st.number_input("Packaging Tare Weight (kg) *", min_value=0.0, max_value=100.0, value=0.2, step=0.05)
 
-            save_btn = st.form_submit_button("💾 Save Custom Packaging", type="primary", use_container_width=True)
+            save_btn = st.form_submit_button("Save Custom Packaging", type="primary", use_container_width=True)
 
         if save_btn:
             type_map = {"Box": "box", "Polybag": "polybag", "Tube": "tube", "Custom Crate": "custom_crate"}
@@ -1954,10 +2089,10 @@ def render_packaging_optimizer():
                     "padding_cm": cp_pad,
                     "tare_weight_kg": cp_tare,
                 })
-                st.success(f"✅ Saved custom packaging **{cp_name.strip()}** (`{pkg_id}`)!")
+                st.success(f"[PASS]  Saved custom packaging **{cp_name.strip()}** (`{pkg_id}`)!")
                 st.rerun()
             except Exception as exc:
-                st.error(f"❌ Error saving packaging: {exc}")
+                st.error(f"[FAIL]  Error saving packaging: {exc}")
 
     # Load custom packages
     saved_pkgs = db.get_custom_packagings()
@@ -1989,7 +2124,7 @@ def render_packaging_optimizer():
     with pc4:
         prod_weight = st.number_input("Product Net Weight (kg) *", min_value=0.01, max_value=1000.0, value=float(order.parcel_weight_kg), step=0.1, key="eval_prod_wt")
 
-    if st.button("📐 Evaluate Packaging Alternatives Across All Couriers", type="primary", use_container_width=True):
+    if st.button("Evaluate Packaging Alternatives Across All Couriers", type="primary", use_container_width=True):
         prod_dims = Dimensions(length_cm=prod_l, width_cm=prod_w, height_cm=prod_h)
         with st.spinner("Evaluating packaging options across 6 orthogonal rotations…"):
             results = evaluate_packaging_alternatives(
@@ -2009,40 +2144,40 @@ def render_packaging_optimizer():
 
         if feasible:
             best = min(feasible, key=lambda r: (r.new_billable_slab_kg, -r.estimated_freight_savings_inr))
-            st.success(f"🏆 **Best Packaging Option:** {best.box_name} ({'Custom' if best.is_custom else 'Demo'}) — saves {fmt_inr(best.estimated_freight_savings_inr)} in estimated freight.")
+            st.success(f" **Best Packaging Option:** {best.box_name} ({'Custom' if best.is_custom else 'Demo'}) — saves {fmt_inr(best.estimated_freight_savings_inr)} in estimated freight.")
 
             for r in feasible:
-                with st.expander(f"✅ {r.box_name} — Billable {r.new_billable_slab_kg:.2f} kg (Saves {fmt_inr(r.estimated_freight_savings_inr)})"):
+                with st.expander(f"[PASS]  {r.box_name} — Billable {r.new_billable_slab_kg:.2f} kg (Saves {fmt_inr(r.estimated_freight_savings_inr)})"):
                     st.markdown(f"**Outer Dimensions:** {r.outer_dimensions.length_cm} × {r.outer_dimensions.width_cm} × {r.outer_dimensions.height_cm} cm")
                     gross_wt = getattr(r, "new_gross_weight_kg", 0.0) or (prod_weight + r.tare_weight_kg)
                     st.markdown(f"**Tare Weight:** {r.tare_weight_kg:.2f} kg | **Gross Weight:** {gross_wt:.2f} kg")
                     if r.courier_reports:
                         st.markdown("**Courier Capability & Divisor Compatibility:**")
                         for c_code, c_rep in r.courier_reports.items():
-                            badge = "🟢 Eligible" if c_rep.is_eligible else "🔴 Ineligible"
+                            badge = "[LIVE]  Eligible" if c_rep.is_eligible else "[ERROR]  Ineligible"
                             st.caption(f"- **{c_code}**: {badge} (Divisor {c_rep.volumetric_divisor:.0f})")
 
         if infeasible:
-            with st.expander(f"❌ Infeasible Packaging Options ({len(infeasible)})", expanded=False):
+            with st.expander(f"[FAIL]  Infeasible Packaging Options ({len(infeasible)})", expanded=False):
                 for r in infeasible:
-                    st.caption(f"❌ **{r.box_name}**: {r.rejection_reason}")
+                    st.caption(f"[FAIL]  **{r.box_name}**: {r.rejection_reason}")
 
 
 # ── Advanced Tool 2: Stress Testing Lab ──────────────────────────────────────
 def render_stress_testing():
-    st.subheader("🧪 Shipping Decision Stress Testing Lab")
+    st.subheader("Shipping Decision Stress Testing Lab")
     st.caption("Evaluate how courier recommendations hold up under input variations (weight, dimensions, surcharges).")
 
     order: Optional[OrderInput] = st.session_state.get("order")
     selected_quote: Optional[CourierQuote] = st.session_state.get("selected_quote")
 
     if order is None or selected_quote is None:
-        st.info("ℹ️ Enter shipment details in 'Ship a Parcel' to run automated stress tests on the selected quote.")
+        st.info("ℹ Enter shipment details in 'Ship a Parcel' to run automated stress tests on the selected quote.")
         return
 
     st.markdown(f"**Active Order:** `{order.order_reference}` | **Selected Courier:** **{selected_quote.courier_name}**")
 
-    if st.button("⚡ Run Decision Stress Test Suite", type="primary", use_container_width=True):
+    if st.button("Run Decision Stress Test Suite", type="primary", use_container_width=True):
         tester = ShippingDecisionStressTester(couriers=ALL_DEMO_COURIERS)
         with st.spinner("Perturbing order weights, dimensions, and surcharges across 10 scenarios…"):
             report = tester.run_stress_test(
@@ -2062,13 +2197,13 @@ def render_stress_testing():
         m4.metric("Scenarios Tested", report.total_scenarios_evaluated)
 
         frag = report.fragility_analysis
-        st.markdown(f"**Fragility Verdict:** {'🔴 Sensitive' if frag.is_fragile else '🟢 Robust'} — {frag.fragility_verdict}")
+        st.markdown(f"**Fragility Verdict:** {'[ERROR]  Sensitive' if frag.is_fragile else '[LIVE]  Robust'} — {frag.fragility_verdict}")
         st.markdown(f"**Most Sensitive Input:** `{frag.most_sensitive_input}`")
 
 
 # ── Advanced Tool 3: Courier Capability Registry ─────────────────────────────
 def render_capability_registry():
-    st.subheader("📜 Official Courier Capability & Provenance Registry")
+    st.subheader("Official Courier Capability & Provenance Registry")
     st.caption("Documented carrier restrictions, volumetric divisors, and source URLs.")
 
     db = get_db()
@@ -2090,10 +2225,10 @@ def render_capability_registry():
 
 # ── Tab 2: My Shipments & Audit History ──────────────────────────────────────
 def render_history():
-    st.header("📋 My Shipments & Audit Records")
+    st.header("My Shipments & Audit Records")
 
     db, audit, _, _, _ = get_services()
-    tab_shipments, tab_audit = st.tabs(["🚚 Dispatched Shipments", "📜 Audit Trail"])
+    tab_shipments, tab_audit = st.tabs(["Dispatched Shipments", "Audit Trail"])
 
     with tab_shipments:
         st.subheader("Shipment Records")
@@ -2158,7 +2293,7 @@ def render_history():
                                 )
                                 if hist_pdf:
                                     st.download_button(
-                                        f"📥 Download Label (PDF) for {tracking}",
+                                        f"Download Label (PDF) for {tracking}",
                                         data=hist_pdf,
                                         file_name=clean_fn,
                                         mime="application/pdf",
@@ -2195,15 +2330,15 @@ def render_official_test_cases_dashboard():
     Supports single test execution, batch execution, result resets,
     compact cards, metrics, and evidence inspection.
     """
-    st.subheader("🧪 Official Hackathon Test Cases Dashboard (TC1 – TC4)")
+    st.subheader("Official Hackathon Test Cases Dashboard (TC1 – TC4)")
     st.markdown(
         "*Dedicated verification dashboard for official Hackathon evaluation criteria. "
         "Each test executes real domain logic against deterministic mock courier configurations.*"
     )
     st.warning(
-        "🔵 **DEMO DATA NOTICE:** All carrier rates, tracking numbers, and dispatches are synthetic "
+        "[DEMO]  **DEMO DATA NOTICE:** All carrier rates, tracking numbers, and dispatches are synthetic "
         "demonstration outputs produced by the Demo Shipping Adapter.",
-        icon="ℹ️",
+        icon=None,
     )
 
     db = get_db()
@@ -2212,7 +2347,7 @@ def render_official_test_cases_dashboard():
     # Action bar
     act_col1, act_col2 = st.columns([2, 1])
     with act_col1:
-        if st.button("▶️ Run All Official Tests (TC1 – TC4)", type="primary", use_container_width=True, key="btn_run_all_tc"):
+        if st.button("▶ Run All Official Tests (TC1 – TC4)", type="primary", use_container_width=True, key="btn_run_all_tc"):
             all_res = runner.run_all()
             if "official_test_results" not in st.session_state:
                 st.session_state["official_test_results"] = {}
@@ -2231,7 +2366,7 @@ def render_official_test_cases_dashboard():
             st.rerun()
 
     with act_col2:
-        if st.button("🔄 Reset Official Test Results", use_container_width=True, key="btn_reset_all_tc"):
+        if st.button("Reset Official Test Results", use_container_width=True, key="btn_reset_all_tc"):
             st.session_state["official_test_results"] = {}
             try:
                 db.clear_official_test_runs()
@@ -2276,11 +2411,11 @@ def render_official_test_cases_dashboard():
     m4.metric("Not Run", str(not_run_cnt))
 
     if passed_cnt == 4:
-        st.success("🎉 **All 4 Official Test Cases Passed Successfully!** All evaluation criteria satisfied.")
+        st.success(" **All 4 Official Test Cases Passed Successfully!** All evaluation criteria satisfied.")
     elif failed_cnt > 0 or error_cnt > 0:
-        st.error(f"⚠️ **{failed_cnt} Test Case(s) Failed, {error_cnt} Error(s).** Review failure explanations below.")
+        st.error(f"[NOTICE]  **{failed_cnt} Test Case(s) Failed, {error_cnt} Error(s).** Review failure explanations below.")
     elif not_run_cnt == 4:
-        st.info("ℹ️ Official test cases are currently NOT RUN. Click **'Run All Official Tests'** or run individual tests below.")
+        st.info("ℹ Official test cases are currently NOT RUN. Click **'Run All Official Tests'** or run individual tests below.")
 
     st.markdown("---")
 
@@ -2319,7 +2454,7 @@ def render_official_test_cases_dashboard():
     for i, spec in enumerate(tc_specs):
         with grid_cols[i]:
             with st.container(border=True):
-                st.markdown(f"#### 🏷️ {spec['title']}")
+                st.markdown(f"####  {spec['title']}")
                 st.caption(spec["subtitle"])
                 st.markdown(f"**Expected Outcome:** {spec['expected']}")
 
@@ -2328,29 +2463,29 @@ def render_official_test_cases_dashboard():
                 if tc_data:
                     st_val = tc_data.get("status", "NOT RUN")
                     if st_val == "PASSED":
-                        st.success(f"✅ **Status: {st_val}**")
+                        st.success(f"[PASS]  **Status: {st_val}**")
                     elif st_val == "FAILED":
-                        st.error(f"❌ **Status: {st_val}**")
+                        st.error(f"[FAIL]  **Status: {st_val}**")
                     elif st_val == "ERROR":
-                        st.error(f"⚠️ **Status: {st_val}**")
+                        st.error(f"[NOTICE]  **Status: {st_val}**")
                     else:
-                        st.info(f"⚪ **Status: {st_val}**")
+                        st.info(f"[NOT RUN]  **Status: {st_val}**")
 
                     st.markdown(f"**Actual Result:** {tc_data.get('actual', 'None')}")
                     if st_val in ("FAILED", "ERROR") and tc_data.get("explanation"):
                         st.warning(f"**Failure Details:** {tc_data.get('explanation')}")
 
-                    with st.expander("🔍 Inspect Inputs & Evidence (JSON)", expanded=False):
-                        st.caption(f"⏱️ Executed at {tc_data.get('timestamp', '')[:19]}Z")
+                    with st.expander("Inspect Inputs & Evidence (JSON)", expanded=False):
+                        st.caption(f"Executed at {tc_data.get('timestamp', '')[:19]}Z")
                         st.markdown("**Input Record Snapshot:**")
                         st.json(tc_data.get("input_record", {}))
                         st.markdown("**Evidence References:**")
                         st.json(tc_data.get("evidence", {}))
                 else:
-                    st.info("⚪ **Status: NOT RUN**")
+                    st.info("[NOT RUN]  **Status: NOT RUN**")
                     st.caption("Click 'Run Test' below to execute this scenario.")
 
-                if st.button(f"▶️ Run {spec['id']} Test", key=f"btn_run_{spec['id'].lower()}", use_container_width=True):
+                if st.button(f"▶ Run {spec['id']} Test", key=f"btn_run_{spec['id'].lower()}", use_container_width=True):
                     res = runner.run_single(spec["id"])
                     if "official_test_results" not in st.session_state:
                         st.session_state["official_test_results"] = {}
@@ -2372,18 +2507,18 @@ def render_official_test_cases_dashboard():
 def main():
     render_sidebar()
 
-    st.title("📦 Adaptive Shipping Intelligence Agent")
+    st.title("Adaptive Shipping Intelligence Agent")
     st.markdown("*Find a suitable courier, compare shipping costs, and prepare your shipment in a few simple steps.*")
     st.caption(
-        "🔵 **DEMO DATA NOTICE:** All courier rates, tracking references, and simulated dispatches "
+        "[DEMO]  **DEMO DATA NOTICE:** All courier rates, tracking references, and simulated dispatches "
         "are produced by the Demo Shipping Adapter and are NOT live carrier prices or confirmed bookings."
     )
 
     tab_ship, tab_official, tab_history, tab_advanced = st.tabs([
-        "📦 Ship a Parcel",
-        "🧪 Official Test Cases",
-        "📋 My Shipments",
-        "🛠️ Advanced Tools",
+        "Ship a Parcel",
+        "Official Test Cases",
+        "My Shipments",
+        "Advanced Tools",
     ])
 
     with tab_ship:
@@ -2394,9 +2529,9 @@ def main():
         render_history()
     with tab_advanced:
         adv1, adv2, adv3 = st.tabs([
-            "📦 Packaging Analyzer",
-            "🧪 Stress Testing Lab",
-            "📜 Courier Capability Registry",
+            "Packaging Analyzer",
+            "Stress Testing Lab",
+            "Courier Capability Registry",
         ])
         with adv1:
             render_packaging_optimizer()

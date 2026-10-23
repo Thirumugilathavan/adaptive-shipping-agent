@@ -546,6 +546,11 @@ def test_18_ui_editing_value_and_resubmitting_uses_updated_value():
     assert order1.dimensions.length_cm == 20.0
     assert order1.parcel_weight_kg == 1.0
 
+    # In wizard mode, navigate back to Step 1 to edit dimensions
+    back_btns = [b for b in at.button if "Back to Dimensions" in b.label or getattr(b, "key", None) in ("btn_wz_back_1", "wz_btn_1")]
+    if back_btns:
+        back_btns[0].click().run()
+
     # User edits length and weight
     at.number_input(key="form_dim_len").set_value(45.0)
     at.number_input(key="form_dim_weight").set_value(4.5)

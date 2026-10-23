@@ -35,9 +35,9 @@ def main():
     url = f"http://{host}:{port}"
 
     print("=" * 72)
-    print("🚀 Adaptive Shipping Intelligence Agent (HTML / CSS / JavaScript)")
-    print(f"📡 Web Application URL: {url}")
-    print("✨ Features: Rate Shopping, 10-Scenario Evaluator, 3D Packaging,")
+    print("Adaptive Shipping Intelligence Agent (HTML / CSS / JavaScript)")
+    print(f"Web Application URL: {url}")
+    print("Features: Rate Shopping, 10-Scenario Evaluator, 3D Packaging,")
     print("            Human Approval Gate, AWB Generation & Label Download")
     print("=" * 72)
 
