@@ -1637,7 +1637,16 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
     m2.metric("Courier & Service", f"{selected_quote.courier_name}")
     wt_delta = f"Actual: {dead_wt:.2f} kg" if vol_wt and vol_wt > dead_wt else None
     m3.metric("Billed Weight", f"{billed_wt:.2f} kg", delta=wt_delta, delta_color="inverse")
-    m4.metric("Verification Status", "✅ VERIFIED")
+    report = st.session_state.get("verification_report")
+    ver_status_val = "✅ VERIFIED"
+    if report:
+        if report.overall_status in (VerificationStatus.VERIFIED, VerificationStatus.PASS):
+            ver_status_val = "✅ VERIFIED"
+        elif report.overall_status in (VerificationStatus.FAILED, VerificationStatus.FAIL):
+            ver_status_val = "❌ FAILED"
+        else:
+            ver_status_val = f"⚠️ {report.overall_status.value}"
+    m4.metric("Verification Status", ver_status_val)
 
     # Carrier Pickup Schedule
     pickup_res = st.session_state.get("pickup_result")
@@ -1645,12 +1654,44 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
         with st.container(border=True):
             st.markdown(f"🚚 **Carrier Pickup Scheduled:** Date `{pickup_res.scheduled_date}` | Window `{pickup_res.time_window}` | Ref `{pickup_res.pickup_reference}`")
 
-    # 5-Point Verification Badges
-    report = st.session_state.get("verification_report")
+    # 5-Point Verification Badges & Label Provenance
     if report:
-        with st.expander("🛡️ 5-Point Independent Verification Checks (All Passed)", expanded=False):
+        if report.label_details and report.label_details.is_demo_label:
+            st.info(f"ℹ️ **Label Verification Notice:** {report.label_details.summary_message}")
+
+        all_ok = report.overall_status in (VerificationStatus.VERIFIED, VerificationStatus.PASS)
+        expander_title = "🛡️ 5-Point Independent Verification Checks (All Checkpoints Verified)" if all_ok else f"🛡️ 5-Point Independent Verification Checks ({report.overall_status.value})"
+        with st.expander(expander_title, expanded=False):
             for c in report.checks:
-                st.markdown(f"- ✅ **{c.criterion_name}**: {c.details} (Observed: `{c.observed_value}`)")
+                check_icon = "✅" if c.passed else "❌"
+                if c.status == VerificationStatus.DEMO_ONLY:
+                    check_icon = "🏷️"
+                elif c.status == VerificationStatus.UNSUPPORTED:
+                    check_icon = "⚪"
+                elif c.status == VerificationStatus.NOT_VERIFIED:
+                    check_icon = "🟠"
+
+                st.markdown(f"**{check_icon} {c.criterion_name}** (`{c.status.value}`)")
+                st.caption(f"{c.details} (Observed: `{c.observed_value}`)")
+
+                # If this check has detailed subchecks, render honest separated indicators
+                if getattr(c, "subchecks", None):
+                    with st.container(border=True):
+                        st.markdown("##### 🔍 Label Verification Breakdown & Provenance")
+                        sub_cols = st.columns(2)
+                        for sc_idx, sc in enumerate(c.subchecks):
+                            with sub_cols[sc_idx % 2]:
+                                sc_st = sc.get("status", "NOT VERIFIED")
+                                badge_icon = (
+                                    "🟢 PASS" if sc_st == "PASS"
+                                    else "🔵 DEMO ONLY" if sc_st == "DEMO ONLY"
+                                    else "⚪ UNSUPPORTED" if sc_st == "UNSUPPORTED"
+                                    else "🟠 NOT VERIFIED" if sc_st == "NOT VERIFIED"
+                                    else "🔴 FAIL"
+                                )
+                                st.markdown(f"**{badge_icon}** — {sc.get('name')}")
+                                st.caption(sc.get("details", ""))
+                st.write("")
 
     # ── PDF Label Generation & Download ──
     st.divider()
