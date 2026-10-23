@@ -1640,12 +1640,25 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
     report = st.session_state.get("verification_report")
     ver_status_val = "✅ VERIFIED"
     if report:
-        if report.overall_status in (VerificationStatus.VERIFIED, VerificationStatus.PASS):
-            ver_status_val = "✅ VERIFIED"
-        elif report.overall_status in (VerificationStatus.FAILED, VerificationStatus.FAIL):
+        st_val = getattr(report.overall_status, "value", str(report.overall_status)).upper()
+        is_demo_lbl = bool(
+            getattr(report, "label_details", None)
+            and getattr(report.label_details, "is_demo_label", False)
+        )
+        if st_val in ("VERIFIED", "PASS"):
+            ver_status_val = "🏷️ DEMO VERIFIED" if is_demo_lbl else "✅ VERIFIED"
+        elif st_val in ("FAILED", "FAIL"):
             ver_status_val = "❌ FAILED"
+        elif st_val == "PENDING":
+            ver_status_val = "⏳ PENDING"
+        elif st_val in ("UNSUPPORTED",):
+            ver_status_val = "⚪ UNSUPPORTED"
+        elif st_val in ("DEMO ONLY", "DEMO_ONLY"):
+            ver_status_val = "🏷️ DEMO ONLY"
+        elif st_val in ("NOT VERIFIED", "NOT_VERIFIED", "UNVERIFIED"):
+            ver_status_val = "⚠️ UNVERIFIED"
         else:
-            ver_status_val = f"⚠️ {report.overall_status.value}"
+            ver_status_val = f"⚠️ {st_val}"
     m4.metric("Verification Status", ver_status_val)
 
     # Carrier Pickup Schedule
@@ -1656,22 +1669,30 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
 
     # 5-Point Verification Badges & Label Provenance
     if report:
-        if report.label_details and report.label_details.is_demo_label:
+        if getattr(report, "label_details", None) and getattr(report.label_details, "is_demo_label", False):
             st.info(f"ℹ️ **Label Verification Notice:** {report.label_details.summary_message}")
 
-        all_ok = report.overall_status in (VerificationStatus.VERIFIED, VerificationStatus.PASS)
-        expander_title = "🛡️ 5-Point Independent Verification Checks (All Checkpoints Verified)" if all_ok else f"🛡️ 5-Point Independent Verification Checks ({report.overall_status.value})"
+        status_str = getattr(report.overall_status, "value", str(report.overall_status)).upper()
+        all_ok = (status_str in ("VERIFIED", "PASS"))
+        expander_title = (
+            "🛡️ 5-Point Independent Verification Checks (All Checkpoints Verified)"
+            if all_ok
+            else f"🛡️ 5-Point Independent Verification Checks ({status_str})"
+        )
         with st.expander(expander_title, expanded=False):
             for c in report.checks:
-                check_icon = "✅" if c.passed else "❌"
-                if c.status == VerificationStatus.DEMO_ONLY:
-                    check_icon = "🏷️"
-                elif c.status == VerificationStatus.UNSUPPORTED:
-                    check_icon = "⚪"
-                elif c.status == VerificationStatus.NOT_VERIFIED:
-                    check_icon = "🟠"
+                c_status_str = getattr(c.status, "value", str(c.status)).upper()
+                if c.passed:
+                    check_icon = "🏷️" if c_status_str in ("DEMO ONLY", "DEMO_ONLY") else "✅"
+                else:
+                    if c_status_str in ("UNSUPPORTED",):
+                        check_icon = "⚪"
+                    elif c_status_str in ("NOT VERIFIED", "NOT_VERIFIED", "UNVERIFIED"):
+                        check_icon = "🟠"
+                    else:
+                        check_icon = "❌"
 
-                st.markdown(f"**{check_icon} {c.criterion_name}** (`{c.status.value}`)")
+                st.markdown(f"**{check_icon} {c.criterion_name}** (`{c_status_str}`)")
                 st.caption(f"{c.details} (Observed: `{c.observed_value}`)")
 
                 # If this check has detailed subchecks, render honest separated indicators
@@ -1681,12 +1702,12 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
                         sub_cols = st.columns(2)
                         for sc_idx, sc in enumerate(c.subchecks):
                             with sub_cols[sc_idx % 2]:
-                                sc_st = sc.get("status", "NOT VERIFIED")
+                                sc_st = str(sc.get("status", "NOT VERIFIED")).upper()
                                 badge_icon = (
-                                    "🟢 PASS" if sc_st == "PASS"
-                                    else "🔵 DEMO ONLY" if sc_st == "DEMO ONLY"
+                                    "🟢 PASS" if sc_st in ("PASS", "VERIFIED")
+                                    else "🔵 DEMO ONLY" if sc_st in ("DEMO ONLY", "DEMO_ONLY")
                                     else "⚪ UNSUPPORTED" if sc_st == "UNSUPPORTED"
-                                    else "🟠 NOT VERIFIED" if sc_st == "NOT VERIFIED"
+                                    else "🟠 NOT VERIFIED" if sc_st in ("NOT VERIFIED", "NOT_VERIFIED", "UNVERIFIED")
                                     else "🔴 FAIL"
                                 )
                                 st.markdown(f"**{badge_icon}** — {sc.get('name')}")

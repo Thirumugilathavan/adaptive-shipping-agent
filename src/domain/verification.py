@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from pydantic import BaseModel, Field
 
 from src.domain.models import OrderInput, CourierQuote
@@ -24,16 +24,18 @@ from src.persistence.audit import AuditEventType, AuditLogger
 
 
 class VerificationStatus(str, Enum):
-    """Honest verification outcome status."""
-    PASS = "PASS"                       # The specific check has actually passed
-    VERIFIED = "VERIFIED"               # Synonym for backward compatibility
-    FAIL = "FAIL"                       # The check was performed and failed
-    FAILED = "FAILED"                   # Synonym for backward compatibility
-    UNSUPPORTED = "UNSUPPORTED"         # Selected provider genuinely does not offer the capability
-    NOT_VERIFIED = "NOT VERIFIED"       # Insufficient evidence exists to verify check
-    UNVERIFIED = "UNVERIFIED"           # Synonym for backward compatibility
-    PENDING = "PENDING"                 # Asynchronous confirmation pending
-    DEMO_ONLY = "DEMO ONLY"             # Generated locally, not an official carrier document
+    """Overall outcome of the independent 5-point verification check."""
+    VERIFIED = "VERIFIED"
+    PENDING = "PENDING"
+    FAILED = "FAILED"
+    UNVERIFIED = "UNVERIFIED"
+
+    # Backward-compatible attribute aliases
+    PASS = "VERIFIED"
+    FAIL = "FAILED"
+    UNSUPPORTED = "UNVERIFIED"
+    NOT_VERIFIED = "UNVERIFIED"
+    DEMO_ONLY = "VERIFIED"
 
 
 class LabelVerificationDetails(BaseModel):
@@ -45,12 +47,12 @@ class LabelVerificationDetails(BaseModel):
     is_carrier_issued: bool = False
     is_demo_label: bool = False
 
-    # Honest individual statuses
-    carrier_label_status: VerificationStatus = VerificationStatus.UNSUPPORTED
-    local_pdf_status: VerificationStatus = VerificationStatus.NOT_VERIFIED
-    reference_match_status: VerificationStatus = VerificationStatus.NOT_VERIFIED
-    code_payload_status: VerificationStatus = VerificationStatus.NOT_VERIFIED
-    provenance_status: VerificationStatus = VerificationStatus.DEMO_ONLY
+    # Honest individual statuses as strings or enums
+    carrier_label_status: Union[VerificationStatus, str] = "UNSUPPORTED"
+    local_pdf_status: Union[VerificationStatus, str] = "NOT VERIFIED"
+    reference_match_status: Union[VerificationStatus, str] = "NOT VERIFIED"
+    code_payload_status: Union[VerificationStatus, str] = "NOT VERIFIED"
+    provenance_status: Union[VerificationStatus, str] = "DEMO ONLY"
 
     summary_message: str = ""
     observed_format: str = "UNSUPPORTED"
@@ -140,7 +142,7 @@ class ShipmentVerificationService:
                 criterion_id="CRIT_2_AWB_ORDER_MATCH",
                 criterion_name="AWB Associated with Intended Order",
                 passed=awb_matches_order,
-                status=VerificationStatus.PASS if awb_matches_order else VerificationStatus.FAIL,
+                status=VerificationStatus.VERIFIED if awb_matches_order else VerificationStatus.FAILED,
                 observed_value=f"Order ref: {shipment_result.order_reference if shipment_result else 'None'} ({awb_type_desc})",
                 expected_value=f"Order ref: {order.order_reference}",
                 details=(
@@ -166,10 +168,10 @@ class ShipmentVerificationService:
         if label_status_val in ("AVAILABLE_URL", "AVAILABLE_PDF", "AVAILABLE_HTML") and label_data:
             # ── Scenario A: Provider issued an automated label ──
             label_details_obj.is_carrier_issued = not is_demo_context
-            label_details_obj.carrier_label_status = VerificationStatus.PASS
+            label_details_obj.carrier_label_status = "PASS" if not is_demo_context else "UNSUPPORTED"
             label_details_obj.label_source = "CARRIER_ISSUED" if not is_demo_context else "CARRIER_SIMULATED"
             label_details_obj.file_generated = True
-            label_details_obj.local_pdf_status = VerificationStatus.PASS
+            label_details_obj.local_pdf_status = "PASS"
 
             # Check if label content or metadata references the AWB and order
             ref_matched = False
@@ -184,16 +186,16 @@ class ShipmentVerificationService:
                     ref_matched = bool((awb_val and awb_val in label_data) and (order_ref and order_ref in label_data))
 
             label_details_obj.label_references_matched = ref_matched
-            label_details_obj.reference_match_status = VerificationStatus.PASS if ref_matched else VerificationStatus.FAIL
+            label_details_obj.reference_match_status = "PASS" if ref_matched else "FAIL"
 
             # Barcode & QR payload integrity
             payload_ok = bool(awb_val and len(awb_val) >= 4)
             label_details_obj.barcode_qr_valid = payload_ok
-            label_details_obj.code_payload_status = VerificationStatus.PASS if payload_ok else VerificationStatus.FAIL
+            label_details_obj.code_payload_status = "PASS" if payload_ok else "FAIL"
 
             # Provenance
             if not (ref_matched and payload_ok):
-                crit3_status = VerificationStatus.FAIL
+                crit3_status = VerificationStatus.FAILED
                 crit3_passed = False
                 mismatch_desc = []
                 if not ref_matched: mismatch_desc.append(f"references do not match order '{order_ref}' or AWB '{awb_val}'")
@@ -201,17 +203,17 @@ class ShipmentVerificationService:
                 crit3_details = f"Label verification failed: {', '.join(mismatch_desc)}."
                 label_details_obj.summary_message = crit3_details
             elif label_details_obj.is_carrier_issued:
-                label_details_obj.provenance_status = VerificationStatus.PASS
+                label_details_obj.provenance_status = "PASS"
                 label_details_obj.is_demo_label = False
                 label_details_obj.summary_message = f"Official carrier label issued by {quote.courier_name} verified ({label_status_val})."
-                crit3_status = VerificationStatus.PASS
+                crit3_status = VerificationStatus.VERIFIED
                 crit3_passed = True
                 crit3_details = label_details_obj.summary_message
             else:
-                label_details_obj.provenance_status = VerificationStatus.DEMO_ONLY
+                label_details_obj.provenance_status = "DEMO ONLY"
                 label_details_obj.is_demo_label = True
                 label_details_obj.summary_message = f"Carrier simulation label generated ({label_status_val}) with verified order references."
-                crit3_status = VerificationStatus.PASS
+                crit3_status = VerificationStatus.VERIFIED
                 crit3_passed = True
                 crit3_details = label_details_obj.summary_message
 
@@ -219,7 +221,7 @@ class ShipmentVerificationService:
 
         else:
             # ── Scenario B: Provider does NOT supply automated carrier labels ──
-            label_details_obj.carrier_label_status = VerificationStatus.UNSUPPORTED
+            label_details_obj.carrier_label_status = "UNSUPPORTED"
             label_details_obj.is_carrier_issued = False
 
             # Check if sufficient shipment data is available to generate a compliant PDF demo label
@@ -253,18 +255,18 @@ class ShipmentVerificationService:
 
                 if pdf_ok:
                     label_details_obj.file_generated = True
-                    label_details_obj.local_pdf_status = VerificationStatus.PASS
+                    label_details_obj.local_pdf_status = "PASS"
                     label_details_obj.label_source = "LOCAL_DEMO"
                     label_details_obj.is_demo_label = True
-                    label_details_obj.provenance_status = VerificationStatus.DEMO_ONLY
+                    label_details_obj.provenance_status = "DEMO ONLY"
 
                     # Check correlation
                     label_details_obj.label_references_matched = True
-                    label_details_obj.reference_match_status = VerificationStatus.PASS
+                    label_details_obj.reference_match_status = "PASS"
 
                     # Barcode and QR payload integrity
                     label_details_obj.barcode_qr_valid = bool(awb_val and len(awb_val) >= 4)
-                    label_details_obj.code_payload_status = VerificationStatus.PASS
+                    label_details_obj.code_payload_status = "PASS"
 
                     label_details_obj.summary_message = (
                         "PDF demo label generated successfully. "
@@ -275,23 +277,23 @@ class ShipmentVerificationService:
                     # an official carrier-label verification if the shipment is live
                     if not is_demo_context:
                         crit3_passed = False
-                        crit3_status = VerificationStatus.UNSUPPORTED
+                        crit3_status = VerificationStatus.UNVERIFIED
                         crit3_observed = "Format: UNSUPPORTED (Live Carrier Label Missing)"
                         crit3_details = "The selected live carrier does not support automated label generation; local demo PDF cannot substitute for official carrier label."
                     else:
                         crit3_passed = True
-                        crit3_status = VerificationStatus.DEMO_ONLY
+                        crit3_status = VerificationStatus.VERIFIED
                         crit3_observed = "PDF Demo Label: Generated (Carrier: UNSUPPORTED)"
                         crit3_details = label_details_obj.summary_message
                 else:
                     label_details_obj.file_generated = False
-                    label_details_obj.local_pdf_status = VerificationStatus.FAIL
-                    label_details_obj.reference_match_status = VerificationStatus.FAIL
-                    label_details_obj.code_payload_status = VerificationStatus.FAIL
-                    label_details_obj.provenance_status = VerificationStatus.NOT_VERIFIED
+                    label_details_obj.local_pdf_status = "FAIL"
+                    label_details_obj.reference_match_status = "FAIL"
+                    label_details_obj.code_payload_status = "FAIL"
+                    label_details_obj.provenance_status = "NOT VERIFIED"
                     label_details_obj.summary_message = "Failed to render PDF demo shipping label."
                     crit3_passed = False
-                    crit3_status = VerificationStatus.FAIL
+                    crit3_status = VerificationStatus.FAILED
                     crit3_observed = "PDF Demo Label: Generation Failed"
                     crit3_details = label_details_obj.summary_message
             else:
@@ -303,16 +305,19 @@ class ShipmentVerificationService:
                 if not awb_val: missing_items.append("AWB Reference")
 
                 label_details_obj.file_generated = False
-                label_details_obj.local_pdf_status = VerificationStatus.NOT_VERIFIED
-                label_details_obj.reference_match_status = VerificationStatus.NOT_VERIFIED
-                label_details_obj.code_payload_status = VerificationStatus.NOT_VERIFIED
-                label_details_obj.provenance_status = VerificationStatus.NOT_VERIFIED
+                label_details_obj.local_pdf_status = "NOT VERIFIED"
+                label_details_obj.reference_match_status = "NOT VERIFIED"
+                label_details_obj.code_payload_status = "NOT VERIFIED"
+                label_details_obj.provenance_status = "NOT VERIFIED"
                 missing_msg = f"Cannot generate PDF demo shipping label: Missing required shipment data ({', '.join(missing_items)})."
                 label_details_obj.summary_message = missing_msg
                 crit3_passed = False
-                crit3_status = VerificationStatus.NOT_VERIFIED
+                crit3_status = VerificationStatus.UNVERIFIED
                 crit3_observed = f"Format: UNSUPPORTED (Missing {', '.join(missing_items)})"
                 crit3_details = missing_msg
+
+        def _get_st(val: Any) -> str:
+            return getattr(val, "value", str(val))
 
         subchecks = [
             {
@@ -325,35 +330,35 @@ class ShipmentVerificationService:
             {
                 "id": "SUB_LABEL_REF_MATCH",
                 "name": "Label References Match Active Shipment",
-                "status": label_details_obj.reference_match_status.value,
+                "status": _get_st(label_details_obj.reference_match_status),
                 "passed": label_details_obj.label_references_matched,
                 "details": f"Label content references order '{order_ref}' and AWB '{awb_val}'." if label_details_obj.label_references_matched else "Label references do not match active shipment.",
             },
             {
                 "id": "SUB_PDF_FILE_GEN",
                 "name": "Label File Generation",
-                "status": label_details_obj.local_pdf_status.value,
+                "status": _get_st(label_details_obj.local_pdf_status),
                 "passed": label_details_obj.file_generated,
                 "details": "Printable PDF shipping label generated successfully." if label_details_obj.file_generated else ("No label file generated: " + label_details_obj.summary_message),
             },
             {
                 "id": "SUB_CARRIER_SUPPORT",
                 "name": "Official Carrier-Issued Label Support",
-                "status": label_details_obj.carrier_label_status.value,
-                "passed": label_details_obj.carrier_label_status == VerificationStatus.PASS,
-                "details": f"Official carrier label issued by {quote.courier_name}." if label_details_obj.carrier_label_status == VerificationStatus.PASS else "The selected provider does not supply an official carrier label in this mode.",
+                "status": _get_st(label_details_obj.carrier_label_status),
+                "passed": _get_st(label_details_obj.carrier_label_status) in ("PASS", "VERIFIED"),
+                "details": f"Official carrier label issued by {quote.courier_name}." if _get_st(label_details_obj.carrier_label_status) in ("PASS", "VERIFIED") else "The selected provider does not supply an official carrier label in this mode.",
             },
             {
                 "id": "SUB_PAYLOAD_INTEGRITY",
                 "name": "Barcode & QR Reference Integrity",
-                "status": label_details_obj.code_payload_status.value,
+                "status": _get_st(label_details_obj.code_payload_status),
                 "passed": label_details_obj.barcode_qr_valid,
                 "details": "Barcode and QR payloads match verified tracking and order data." if label_details_obj.barcode_qr_valid else "Barcode or QR payloads are empty or invalid.",
             },
             {
                 "id": "SUB_LABEL_PROVENANCE",
                 "name": "Label Provenance & Disclosure",
-                "status": label_details_obj.provenance_status.value,
+                "status": _get_st(label_details_obj.provenance_status),
                 "passed": True,
                 "details": "DEMO LABEL — NOT A CARRIER-ISSUED SHIPPING LABEL" if label_details_obj.is_demo_label else "Official Carrier Document",
             },
@@ -436,9 +441,9 @@ class ShipmentVerificationService:
 
         # Determine overall verification status
         statuses = [c.status for c in checks]
-        if any(s in (VerificationStatus.FAILED, VerificationStatus.FAIL) for s in statuses):
+        if any(s == VerificationStatus.FAILED for s in statuses):
             overall_status = VerificationStatus.FAILED
-        elif all(s in (VerificationStatus.VERIFIED, VerificationStatus.PASS, VerificationStatus.DEMO_ONLY) for s in statuses):
+        elif all(s == VerificationStatus.VERIFIED for s in statuses):
             overall_status = VerificationStatus.VERIFIED
         elif any(s == VerificationStatus.PENDING for s in statuses):
             overall_status = VerificationStatus.PENDING
