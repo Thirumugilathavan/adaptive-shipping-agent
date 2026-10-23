@@ -179,6 +179,8 @@ class ShipmentDispatchService:
             approved_by=approval.approved_by,
             approved_at=approval.approved_at,
             created_at=now_iso,
+            order=order,
+            quote=quote,
         )
         self.audit.record_event(
             event_type=AuditEventType.DISPATCH_ATTEMPTED,

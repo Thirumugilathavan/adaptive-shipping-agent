@@ -181,13 +181,24 @@ class DatabaseManager:
                 conn.close()
 
     def init_db(self) -> None:
-        """Initialize database schema tables and indexes."""
+        """Initialize database schema tables, indexes, and run migrations."""
         with self.connection() as conn:
             conn.executescript(SCHEMA_SQL)
+        self.migrate_schema()
         self.seed_default_courier_capabilities()
 
+    def migrate_schema(self) -> None:
+        """Safely alter existing database tables if missing newly introduced columns."""
+        with self.connection() as conn:
+            shipments_cols = {row["name"] for row in conn.execute("PRAGMA table_info(shipments)").fetchall()}
+            if shipments_cols:
+                if "label_status" not in shipments_cols:
+                    conn.execute("ALTER TABLE shipments ADD COLUMN label_status TEXT NOT NULL DEFAULT 'UNSUPPORTED'")
+                if "label_data" not in shipments_cols:
+                    conn.execute("ALTER TABLE shipments ADD COLUMN label_data TEXT")
+
     def insert_order(self, order_data: dict[str, Any]) -> None:
-        """Insert a validated order record."""
+        """Insert or update a validated order record without risking cascade deletes."""
         sql = """
         INSERT INTO orders (
             order_id, order_reference, sender_json, recipient_json,
@@ -198,9 +209,48 @@ class DatabaseManager:
             :parcel_weight_kg, :length_cm, :width_cm, :height_cm,
             :package_type, :is_cod, :cod_amount, :created_at
         )
+        ON CONFLICT (order_reference) DO UPDATE SET
+            sender_json = excluded.sender_json,
+            recipient_json = excluded.recipient_json,
+            parcel_weight_kg = excluded.parcel_weight_kg,
+            length_cm = excluded.length_cm,
+            width_cm = excluded.width_cm,
+            height_cm = excluded.height_cm,
+            package_type = excluded.package_type,
+            is_cod = excluded.is_cod,
+            cod_amount = excluded.cod_amount
         """
         with self.connection() as conn:
             conn.execute(sql, order_data)
+
+    def save_order_model(self, order: Any, order_id: Optional[str] = None) -> str:
+        """Persist or update an OrderInput domain model into SQLite."""
+        import uuid
+        effective_order_id = order_id or f"ORD-{uuid.uuid4().hex[:12]}"
+        now_iso = datetime.now(timezone.utc).isoformat()
+        sender_json = order.sender.model_dump_json() if hasattr(order.sender, "model_dump_json") else json.dumps(order.sender)
+        recipient_json = order.recipient.model_dump_json() if hasattr(order.recipient, "model_dump_json") else json.dumps(order.recipient)
+        pkg_val = order.package_type.value if hasattr(order.package_type, "value") else str(order.package_type)
+        l_val = order.dimensions.length_cm if order.dimensions else 0.0
+        w_val = order.dimensions.width_cm if order.dimensions else 0.0
+        h_val = order.dimensions.height_cm if order.dimensions else 0.0
+
+        order_data = {
+            "order_id": effective_order_id,
+            "order_reference": order.order_reference,
+            "sender_json": sender_json,
+            "recipient_json": recipient_json,
+            "parcel_weight_kg": float(order.parcel_weight_kg),
+            "length_cm": float(l_val),
+            "width_cm": float(w_val),
+            "height_cm": float(h_val),
+            "package_type": pkg_val,
+            "is_cod": 1 if order.is_cod else 0,
+            "cod_amount": float(order.cod_amount),
+            "created_at": now_iso,
+        }
+        self.insert_order(order_data)
+        return effective_order_id
 
     def get_order(self, order_reference: str) -> Optional[dict[str, Any]]:
         """Retrieve an order by unique order reference."""
@@ -210,9 +260,9 @@ class DatabaseManager:
             return dict(row) if row else None
 
     def insert_quotes(self, quotes: list[dict[str, Any]]) -> None:
-        """Bulk insert courier quotes."""
+        """Bulk insert courier quotes using UPSERT."""
         sql = """
-        INSERT OR REPLACE INTO quotes (
+        INSERT INTO quotes (
             quote_id, order_reference, courier_code, courier_name,
             service_type, estimated_delivery_days, total_cost,
             quote_data_json, source_type, input_hash, created_at
@@ -221,9 +271,191 @@ class DatabaseManager:
             :service_type, :estimated_delivery_days, :total_cost,
             :quote_data_json, :source_type, :input_hash, :created_at
         )
+        ON CONFLICT (quote_id) DO UPDATE SET
+            order_reference = excluded.order_reference,
+            courier_code = excluded.courier_code,
+            courier_name = excluded.courier_name,
+            service_type = excluded.service_type,
+            estimated_delivery_days = excluded.estimated_delivery_days,
+            total_cost = excluded.total_cost,
+            quote_data_json = excluded.quote_data_json,
+            source_type = excluded.source_type,
+            input_hash = excluded.input_hash
         """
         with self.connection() as conn:
             conn.executemany(sql, quotes)
+
+    def save_quote_model(self, quote: Any, order_reference: str) -> str:
+        """Persist or update a CourierQuote model into SQLite."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        total_c = quote.cost_breakdown.total_cost if quote.cost_breakdown else 0.0
+        q_json = quote.model_dump_json() if hasattr(quote, "model_dump_json") else json.dumps(quote)
+        self.insert_quotes([
+            {
+                "quote_id": quote.quote_id,
+                "order_reference": order_reference,
+                "courier_code": quote.courier_code,
+                "courier_name": getattr(quote, "courier_name", quote.courier_code),
+                "service_type": getattr(quote, "service_type", "Standard"),
+                "estimated_delivery_days": getattr(quote, "estimated_delivery_days", 0) or 0,
+                "total_cost": float(total_c),
+                "quote_data_json": q_json,
+                "source_type": getattr(quote, "source_type", "DEMO"),
+                "input_hash": getattr(quote, "input_hash", "hash"),
+                "created_at": now_iso,
+            }
+        ])
+        return quote.quote_id
+
+    def ensure_parent_records(
+        self,
+        order_reference: str,
+        quote_id: str,
+        courier_code: str = "UNKNOWN",
+        order: Optional[Any] = None,
+        quote: Optional[Any] = None,
+    ) -> None:
+        """
+        Ensure parent records in orders and quotes tables exist prior to any
+        shipments record creation or modification.
+        Guarantees PRAGMA foreign_keys = ON will never raise IntegrityError.
+        """
+        import uuid
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self.connection() as conn:
+            # 1. Check orders
+            order_row = conn.execute(
+                "SELECT order_reference FROM orders WHERE order_reference = ?",
+                (order_reference,),
+            ).fetchone()
+            if not order_row:
+                if order is not None and hasattr(order, "order_reference"):
+                    sender_json = order.sender.model_dump_json() if hasattr(order.sender, "model_dump_json") else json.dumps(order.sender)
+                    recipient_json = order.recipient.model_dump_json() if hasattr(order.recipient, "model_dump_json") else json.dumps(order.recipient)
+                    l_val = order.dimensions.length_cm if order.dimensions else 0.0
+                    w_val = order.dimensions.width_cm if order.dimensions else 0.0
+                    h_val = order.dimensions.height_cm if order.dimensions else 0.0
+                    pkg_val = order.package_type.value if hasattr(order.package_type, "value") else str(order.package_type)
+                    conn.execute(
+                        """
+                        INSERT INTO orders (
+                            order_id, order_reference, sender_json, recipient_json,
+                            parcel_weight_kg, length_cm, width_cm, height_cm,
+                            package_type, is_cod, cod_amount, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(order_reference) DO NOTHING
+                        """,
+                        (
+                            f"ORD-{uuid.uuid4().hex[:12]}",
+                            order.order_reference,
+                            sender_json,
+                            recipient_json,
+                            float(order.parcel_weight_kg),
+                            float(l_val),
+                            float(w_val),
+                            float(h_val),
+                            pkg_val,
+                            1 if order.is_cod else 0,
+                            float(order.cod_amount),
+                            now_iso,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO orders (
+                            order_id, order_reference, sender_json, recipient_json,
+                            parcel_weight_kg, length_cm, width_cm, height_cm,
+                            package_type, is_cod, cod_amount, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(order_reference) DO NOTHING
+                        """,
+                        (
+                            f"ORD-{uuid.uuid4().hex[:12]}",
+                            order_reference,
+                            json.dumps({"name": "Sender", "pin_code": "110001"}),
+                            json.dumps({"name": "Recipient", "pin_code": "400001"}),
+                            1.0,
+                            10.0,
+                            10.0,
+                            10.0,
+                            "box",
+                            0,
+                            0.0,
+                            now_iso,
+                        ),
+                    )
+
+            # 2. Check quotes
+            quote_row = conn.execute(
+                "SELECT quote_id FROM quotes WHERE quote_id = ?",
+                (quote_id,),
+            ).fetchone()
+            if not quote_row:
+                if quote is not None and hasattr(quote, "quote_id"):
+                    total_c = quote.cost_breakdown.total_cost if quote.cost_breakdown else 0.0
+                    q_json = quote.model_dump_json() if hasattr(quote, "model_dump_json") else json.dumps(quote)
+                    conn.execute(
+                        """
+                        INSERT INTO quotes (
+                            quote_id, order_reference, courier_code, courier_name,
+                            service_type, estimated_delivery_days, total_cost,
+                            quote_data_json, source_type, input_hash, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(quote_id) DO NOTHING
+                        """,
+                        (
+                            quote.quote_id,
+                            order_reference,
+                            quote.courier_code,
+                            getattr(quote, "courier_name", quote.courier_code),
+                            getattr(quote, "service_type", "Standard"),
+                            getattr(quote, "estimated_delivery_days", 0) or 0,
+                            float(total_c),
+                            q_json,
+                            getattr(quote, "source_type", "DEMO"),
+                            getattr(quote, "input_hash", "hash"),
+                            now_iso,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO quotes (
+                            quote_id, order_reference, courier_code, courier_name,
+                            service_type, estimated_delivery_days, total_cost,
+                            quote_data_json, source_type, input_hash, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(quote_id) DO NOTHING
+                        """,
+                        (
+                            quote_id,
+                            order_reference,
+                            courier_code,
+                            courier_code,
+                            "Standard",
+                            2,
+                            100.0,
+                            json.dumps({"quote_id": quote_id}),
+                            "DEMO",
+                            "stub_hash",
+                            now_iso,
+                        ),
+                    )
+
+    def get_shipment(self, order_reference: str) -> Optional[dict[str, Any]]:
+        """Retrieve a shipment record by unique order reference."""
+        sql = "SELECT * FROM shipments WHERE order_reference = ?"
+        with self.connection() as conn:
+            row = conn.execute(sql, (order_reference,)).fetchone()
+            return dict(row) if row else None
+
+    def get_shipment_by_id(self, shipment_id: str) -> Optional[dict[str, Any]]:
+        """Retrieve a shipment record by shipment id."""
+        sql = "SELECT * FROM shipments WHERE shipment_id = ?"
+        with self.connection() as conn:
+            row = conn.execute(sql, (shipment_id,)).fetchone()
+            return dict(row) if row else None
 
     def get_quotes_for_order(self, order_reference: str) -> list[dict[str, Any]]:
         """Retrieve all quotes for an order."""

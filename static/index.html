@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adaptive Shipping Intelligence Agent</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Header Bar -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="logo-icon">📦</div>
+      <div>
+        <h1 class="app-title">Adaptive Shipping Intelligence Agent</h1>
+        <p class="app-subtitle">Autonomous Rate Comparer, Packaging Optimizer & Dispatch Verification</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="provider-pill">
+        <label for="providerModeSelect">Provider Mode:</label>
+        <select id="providerModeSelect" class="provider-select">
+          <option value="demo">Demo Shipping Adapter (Simulated)</option>
+          <option value="shipengine">ShipEngine Sandbox (Real API)</option>
+        </select>
+      </div>
+      <div class="status-indicator">
+        <span class="status-dot"></span>
+        <span id="serverStatusText">Online (SQLite WAL)</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="nav-tabs">
+    <button class="tab-btn active" data-tab="tab-rates">🚀 Rate Shopping & Dispatch</button>
+    <button class="tab-btn" data-tab="tab-evaluator">🧪 10-Scenario Evaluator & Tests</button>
+    <button class="tab-btn" data-tab="tab-packaging">📦 Packaging 3D Optimizer</button>
+    <button class="tab-btn" data-tab="tab-audit">🛡️ Security Audit Logs</button>
+  </nav>
+
+  <!-- Main Content Container -->
+  <main class="main-container">
+
+    <!-- =================================================================== -->
+    <!-- TAB 1: Rate Shopping & Dispatch                                     -->
+    <!-- =================================================================== -->
+    <section id="tab-rates" class="tab-pane active">
+      <div class="two-col-layout">
+        
+        <!-- Left Column: Input Form -->
+        <div class="panel form-panel">
+          <div class="panel-header">
+            <h2>📦 Shipment Details & Measurements</h2>
+            <button id="btnResetForm" class="btn-ghost" title="Reset form to defaults">🔄 Reset</button>
+          </div>
+
+          <form id="shippingForm" novalidate>
+            <!-- Route Section -->
+            <div class="form-section">
+              <h3 class="section-title">📍 Origin & Destination</h3>
+              <div class="grid-2">
+                <div class="form-group">
+                  <label for="senderPin">Pickup PIN Code *</label>
+                  <input type="text" id="senderPin" name="sender_pin" value="110001" maxlength="6" required>
+                  <span class="helper-text" id="senderPinDesc">New Delhi (Delhi)</span>
+                </div>
+                <div class="form-group">
+                  <label for="recipientPin">Delivery PIN Code *</label>
+                  <input type="text" id="recipientPin" name="recipient_pin" value="400001" maxlength="6" required>
+                  <span class="helper-text" id="recipientPinDesc">Mumbai (Maharashtra)</span>
+                </div>
+              </div>
+              <div class="grid-2">
+                <div class="form-group">
+                  <label for="senderName">Sender Name</label>
+                  <input type="text" id="senderName" name="sender_name" value="Warehouse Central Hub">
+                </div>
+                <div class="form-group">
+                  <label for="recipientName">Recipient Name</label>
+                  <input type="text" id="recipientName" name="recipient_name" value="Priya Sharma">
+                </div>
+              </div>
+            </div>
+
+            <!-- Measurements Section -->
+            <div class="form-section">
+              <h3 class="section-title">📐 Mandatory Dimensions & Weight</h3>
+              <div class="grid-4">
+                <div class="form-group">
+                  <label for="dimLength">Length (cm) *</label>
+                  <input type="number" id="dimLength" name="length_cm" value="25.0" step="0.5" min="0.1" required>
+                </div>
+                <div class="form-group">
+                  <label for="dimWidth">Width (cm) *</label>
+                  <input type="number" id="dimWidth" name="width_cm" value="20.0" step="0.5" min="0.1" required>
+                </div>
+                <div class="form-group">
+                  <label for="dimHeight">Height (cm) *</label>
+                  <input type="number" id="dimHeight" name="height_cm" value="15.0" step="0.5" min="0.1" required>
+                </div>
+                <div class="form-group">
+                  <label for="dimWeight">Weight (kg) *</label>
+                  <input type="number" id="dimWeight" name="parcel_weight_kg" value="1.5" step="0.1" min="0.01" required>
+                </div>
+              </div>
+
+              <!-- Live Volumetric Chip -->
+              <div class="volumetric-banner" id="volumetricBanner">
+                <span>⚡ Volume: <strong id="valVolume">7,500 cm³</strong></span>
+                <span>• Volumetric (Div 5000): <strong id="valVolWeight">1.50 kg</strong></span>
+                <span>• Billable Weight: <strong id="valBillWeight">1.50 kg</strong></span>
+              </div>
+            </div>
+
+            <!-- Packaging & Payment Section -->
+            <div class="form-section">
+              <h3 class="section-title">💼 Package Type & Payment Terms</h3>
+              <div class="grid-2">
+                <div class="form-group">
+                  <label for="packageType">Package Type</label>
+                  <select id="packageType" name="package_type">
+                    <option value="box" selected>Standard Corrugated Box</option>
+                    <option value="flyer">Poly Flyer / Bubble Mailer</option>
+                    <option value="wooden_crate">Wooden Crate</option>
+                    <option value="custom">Custom Packaging</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="paymentMode">Payment Method</label>
+                  <select id="paymentMode" name="payment_mode">
+                    <option value="prepaid" selected>Prepaid (Online)</option>
+                    <option value="cod">Cash on Delivery (COD)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group hidden" id="codGroup">
+                <label for="codAmount">COD Collection Amount (₹) *</label>
+                <input type="number" id="codAmount" name="cod_amount" value="1200.0" step="10.0" min="1.0">
+              </div>
+            </div>
+
+            <!-- Shipping Advisor Preferences -->
+            <div class="form-section">
+              <h3 class="section-title">🎯 Personal Shipping Preferences (Advisor)</h3>
+              <div class="grid-3">
+                <div class="form-group">
+                  <label for="prefBudget">Max Budget (₹)</label>
+                  <input type="number" id="prefBudget" name="max_budget" placeholder="e.g. 250" step="10">
+                </div>
+                <div class="form-group">
+                  <label for="prefDays">Target Deadline (Days)</label>
+                  <input type="number" id="prefDays" name="max_delivery_days" placeholder="e.g. 3" min="1" max="14">
+                </div>
+                <div class="form-group">
+                  <label for="rankingMode">Ranking Strategy</label>
+                  <select id="rankingMode" name="ranking_mode">
+                    <option value="lowest_cost" selected>Lowest Landed Cost</option>
+                    <option value="fastest">Fastest Delivery (SLA)</option>
+                    <option value="balanced">Balanced (Cost + SLA)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Submit Button -->
+            <button type="submit" id="btnFindCouriers" class="btn-primary full-width">
+              🔍 Find & Compare Couriers
+            </button>
+          </form>
+        </div>
+
+        <!-- Right Column: Comparison & Action Gate -->
+        <div class="panel results-panel">
+          
+          <!-- Empty State -->
+          <div id="emptyResultsState" class="empty-state">
+            <div class="empty-icon">📊</div>
+            <h3>No Rates Calculated Yet</h3>
+            <p>Fill out the shipment measurements on the left and click <strong>Find & Compare Couriers</strong>, or load a scenario from the Evaluator tab.</p>
+          </div>
+
+          <!-- Active Results Container -->
+          <div id="resultsContainer" class="hidden">
+            
+            <!-- Advisor Recommendation Card -->
+            <div id="advisorCard" class="card advisor-card">
+              <div class="advisor-header">
+                <span class="badge-recommendation">⭐ Intelligent Advisor Pick</span>
+                <h3 id="advCourierName">Demo Air Express</h3>
+              </div>
+              <p id="advExplanation" class="advisor-explanation"></p>
+              
+              <!-- Tradeoff Warning if any -->
+              <div id="advTradeoffBox" class="tradeoff-box hidden">
+                <strong>⚠️ Preference Trade-off Notice:</strong>
+                <ul id="advTradeoffList"></ul>
+              </div>
+            </div>
+
+            <!-- Courier Comparison List -->
+            <div class="couriers-section">
+              <div class="section-header-row">
+                <h3>Ranked Courier Rates</h3>
+                <span id="rateCountBadge" class="badge-count">0 Couriers</span>
+              </div>
+              <div id="courierCardsList" class="courier-cards-grid"></div>
+            </div>
+
+            <!-- Human Approval & Review Gate -->
+            <div id="approvalGatePanel" class="card approval-gate-card">
+              <div class="panel-header">
+                <h3>🛡️ Human Approval & Dispatch Gate</h3>
+                <span class="badge-fsm">FSM: PENDING_APPROVAL</span>
+              </div>
+              <div class="approval-summary" id="approvalSummary"></div>
+
+              <div class="approval-action-box">
+                <label class="checkbox-container">
+                  <input type="checkbox" id="chkOperatorConfirm">
+                  <span class="checkmark"></span>
+                  I confirm the shipment details, rate terms, and route serviceability for dispatch.
+                </label>
+                <button id="btnApproveDispatch" class="btn-success full-width" disabled>
+                  🚀 Approve and Create Shipment
+                </button>
+              </div>
+            </div>
+
+            <!-- Shipment Ready & Label Section -->
+            <div id="shipmentReadyPanel" class="card shipment-ready-card hidden">
+              <div class="ready-header">
+                <div class="ready-badge">✅ SHIPMENT CREATED & VERIFIED</div>
+                <h3 id="readyAwb">AWB: DEMO-TRK-12345</h3>
+              </div>
+              
+              <div class="ready-details-grid">
+                <div>
+                  <span class="label">Shipment ID</span>
+                  <strong id="readyShipmentId">-</strong>
+                </div>
+                <div>
+                  <span class="label">Carrier</span>
+                  <strong id="readyCarrier">-</strong>
+                </div>
+                <div>
+                  <span class="label">Pickup Window</span>
+                  <strong id="readyPickup">-</strong>
+                </div>
+                <div>
+                  <span class="label">Verification Check</span>
+                  <strong id="readyVerification" class="text-success">5/5 VERIFIED</strong>
+                </div>
+              </div>
+
+              <!-- Compact, Scroll-Friendly Shipping Label Preview Container -->
+              <div class="label-preview-section">
+                <div class="preview-toolbar">
+                  <h4>📄 Shipping Label (A6 Format)</h4>
+                  <div class="toolbar-actions">
+                    <button id="btnDownloadLabelPdf" class="btn-sm btn-primary">📥 Download PDF</button>
+                    <button id="btnPrintLabel" class="btn-sm btn-outline">🖨️ Print</button>
+                    <button id="btnExpandLabel" class="btn-sm btn-ghost">🔍 Expand</button>
+                  </div>
+                </div>
+
+                <!-- Compact Scroll Container -->
+                <div class="compact-label-viewport" id="compactLabelViewport">
+                  <div id="labelPreviewContent" class="label-render-box"></div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 2: 10-Scenario Evaluator & Test Lab                             -->
+    <!-- =================================================================== -->
+    <section id="tab-evaluator" class="tab-pane">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>🧪 10-Scenario Shipping Evaluator & Test Case Dashboard</h2>
+            <p class="panel-desc">Run deterministic edge-case benchmarks covering volumetric penalties, unserviceable PINs, timeout reconciliations, and label validations.</p>
+          </div>
+          <div class="eval-actions">
+            <button id="btnRunAllScenarios" class="btn-primary">▶️ Run All 10 Scenarios</button>
+            <button id="btnClearTestRuns" class="btn-ghost">🗑️ Clear Runs History</button>
+          </div>
+        </div>
+
+        <!-- 10 Scenarios Grid -->
+        <div class="scenarios-grid" id="scenariosGrid"></div>
+
+        <!-- Test Case Execution Log Table -->
+        <div class="test-runs-section">
+          <div class="section-header-row">
+            <h3>📋 Official Test Execution History (SQLite)</h3>
+            <span id="testRunsCountBadge" class="badge-count">0 Runs</span>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table" id="testRunsTable">
+              <thead>
+                <tr>
+                  <th>Test ID</th>
+                  <th>Scenario</th>
+                  <th>Status</th>
+                  <th>Expected Result</th>
+                  <th>Actual Outcome</th>
+                  <th>Timestamp</th>
+                  <th>Evidence</th>
+                </tr>
+              </thead>
+              <tbody id="testRunsTableBody">
+                <tr><td colspan="7" class="text-center">No test runs recorded yet. Click 'Run Test' on any scenario above.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 3: Packaging 3D Optimizer                                       -->
+    <!-- =================================================================== -->
+    <section id="tab-packaging" class="tab-pane">
+      <div class="two-col-layout">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>📦 3D Box Packaging Optimizer</h2>
+          </div>
+          <p class="panel-desc">Evaluate custom box alternatives across 6 orthogonal rotations to minimize dimensional weight charges.</p>
+          
+          <div class="form-section">
+            <h3>Add New Custom Packaging Box</h3>
+            <form id="customPkgForm">
+              <div class="form-group">
+                <label for="pkgName">Box Name / SKU *</label>
+                <input type="text" id="pkgName" placeholder="e.g. Slim Apparel Box A" required>
+              </div>
+              <div class="grid-3">
+                <div class="form-group">
+                  <label for="pkgL">Outer Length (cm) *</label>
+                  <input type="number" id="pkgL" step="0.5" value="30.0" required>
+                </div>
+                <div class="form-group">
+                  <label for="pkgW">Outer Width (cm) *</label>
+                  <input type="number" id="pkgW" step="0.5" value="20.0" required>
+                </div>
+                <div class="form-group">
+                  <label for="pkgH">Outer Height (cm) *</label>
+                  <input type="number" id="pkgH" step="0.5" value="10.0" required>
+                </div>
+              </div>
+              <div class="grid-3">
+                <div class="form-group">
+                  <label for="pkgWall">Wall (cm)</label>
+                  <input type="number" id="pkgWall" step="0.1" value="0.5">
+                </div>
+                <div class="form-group">
+                  <label for="pkgPad">Padding (cm)</label>
+                  <input type="number" id="pkgPad" step="0.1" value="0.5">
+                </div>
+                <div class="form-group">
+                  <label for="pkgTare">Tare Wt (kg)</label>
+                  <input type="number" id="pkgTare" step="0.05" value="0.15">
+                </div>
+              </div>
+              <button type="submit" class="btn-primary full-width">➕ Save Custom Box to Database</button>
+            </form>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Saved Packaging Inventory</h2>
+          </div>
+          <div id="customPackagesList" class="packages-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 4: Security & Dispatch Audit Logs                               -->
+    <!-- =================================================================== -->
+    <section id="tab-audit" class="tab-pane">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>🛡️ Immutable SQLite Audit Trail</h2>
+            <p class="panel-desc">All dispatch operations, quotes, freshness validations, and approvals recorded with sanitized secrets.</p>
+          </div>
+          <button id="btnRefreshAudit" class="btn-primary">🔄 Refresh Logs</button>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table" id="auditTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Timestamp</th>
+                <th>Event Type</th>
+                <th>Order Ref</th>
+                <th>Shipment ID</th>
+                <th>Actor</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="auditTableBody">
+              <tr><td colspan="7" class="text-center">Loading audit events...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Modal for Fullscreen Label / JSON Evidence -->
+  <div id="appModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modalTitle">Modal Details</h3>
+        <button id="modalCloseBtn" class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

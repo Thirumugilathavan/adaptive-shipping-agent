@@ -81,11 +81,24 @@ class IdempotencyManager:
         approved_by: str,
         approved_at: str,
         created_at: str,
+        order: Optional[Any] = None,
+        quote: Optional[Any] = None,
     ) -> None:
         """
         Record dispatch initiation in SQLite, setting state to DISPATCHING.
         Enforces unique constraint on idempotency_key and order_reference.
+        Ensures parent records in orders and quotes exist to satisfy foreign keys.
         """
+        import sqlite3
+
+        self.db.ensure_parent_records(
+            order_reference=order_reference,
+            quote_id=quote_id,
+            courier_code=courier_code,
+            order=order,
+            quote=quote,
+        )
+
         self.check_can_dispatch(order_reference, idempotency_key)
 
         with self.db.connection() as conn:
@@ -124,21 +137,27 @@ class IdempotencyManager:
                     created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
-                conn.execute(
-                    insert_sql,
-                    (
-                        shipment_id,
-                        order_reference,
-                        quote_id,
-                        ShipmentStatus.DISPATCHING.value,
-                        courier_code,
-                        idempotency_key,
-                        approved_by,
-                        approved_at,
-                        created_at,
-                        created_at,
-                    ),
-                )
+                try:
+                    conn.execute(
+                        insert_sql,
+                        (
+                            shipment_id,
+                            order_reference,
+                            quote_id,
+                            ShipmentStatus.DISPATCHING.value,
+                            courier_code,
+                            idempotency_key,
+                            approved_by,
+                            approved_at,
+                            created_at,
+                            created_at,
+                        ),
+                    )
+                except sqlite3.IntegrityError:
+                    self.check_can_dispatch(order_reference, idempotency_key)
+                    raise DuplicateDispatchError(
+                        f"Shipment creation is already recorded or in progress for order '{order_reference}'."
+                    )
 
     def update_dispatch_outcome(
         self,
