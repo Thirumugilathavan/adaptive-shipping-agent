@@ -418,7 +418,7 @@ def test_12_rechoice_retains_measurements_and_recalculates(base_addresses):
 # UI Regression Scenarios (Streamlit AppTest Suite)
 # ==============================================================================
 
-APP_FILE = str(Path(__file__).resolve().parent.parent / "app.py")
+APP_FILE = str(Path(__file__).resolve().parent.parent / "src" / "ui" / "app.py")
 
 
 def _find_submit_btn(at: AppTest):

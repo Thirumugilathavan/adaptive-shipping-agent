@@ -1,0 +1,46 @@
+{
+  "model_name": "ReferenceSculpturePricePredictor",
+  "model_version": "1.0.0",
+  "algorithm": "RandomForestRegressor (100 trees, max_depth=12)",
+  "source_repository": "https://github.com/Rahul-Shelke-1/shipment-price-prediction",
+  "license": "MIT License (Copyright (c) 2025 Rahul Shelke)",
+  "currency": "USD",
+  "target": "Cost (Specialty Sculpture Freight)",
+  "target_transformation": "log1p(abs(Cost))",
+  "features": {
+    "numerical": [
+      "Artist Reputation",
+      "Height",
+      "Width",
+      "Weight",
+      "Price Of Sculpture",
+      "Base Shipping Price"
+    ],
+    "categorical": [
+      "Material",
+      "International",
+      "Express Shipment",
+      "Installation Included",
+      "Transport",
+      "Fragile",
+      "Customer Information",
+      "Remote Location"
+    ]
+  },
+  "evaluation_metrics": {
+    "holdout_r2_log": 0.9298,
+    "holdout_rmse_log": 0.437,
+    "holdout_mae_log": 0.2844,
+    "holdout_mae_usd": 7609.18,
+    "holdout_rmse_usd": 81526.91
+  },
+  "training_samples": 5200,
+  "test_samples": 1300,
+  "trained_at": "2026-10-23T08:05:24.363408+00:00",
+  "limitations": [
+    "Specialized for art/sculpture freight, not domestic parcel delivery.",
+    "Currency is USD.",
+    "Requires art-specific features (Artist Reputation, Material, Price Of Sculpture).",
+    "Does not account for Indian postal PIN codes or domestic volumetric divisor rules."
+  ]
+}

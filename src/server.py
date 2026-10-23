@@ -81,6 +81,21 @@ from src.persistence.state_machine import ApprovalRecord, ShipmentStateMachine
 from src.providers.base import CourierProvider, ShipmentResult
 from src.providers.demo_adapter import ALL_DEMO_COURIERS, DemoShippingAdapter
 from src.providers.registry import get_provider
+from src.schemas.price_prediction import (
+    PricePredictionApiRequest,
+    PricePredictionApiResponse,
+    QuoteComparisonDto,
+)
+from src.ml.feature_schema import (
+    DomesticCourierFeatures,
+    PredictionStatus,
+    ReferenceSculptureFeatures,
+)
+from src.ml.price_predictor import predict_shipment_price
+from src.services.price_prediction_service import (
+    PricePredictionServiceResponse,
+    ShipmentPricePredictionService,
+)
 from src.ui.helpers import (
     validate_pin_code,
     validate_positive_float,
@@ -274,6 +289,119 @@ def get_test_runs() -> list[dict[str, Any]]:
 def clear_test_runs() -> dict[str, str]:
     db_manager.clear_official_test_runs()
     return {"status": "cleared"}
+
+
+
+# -----------------------------------------------------------------------------
+# ML Shipment Price Prediction Endpoints
+# -----------------------------------------------------------------------------
+
+@app.post("/api/v1/predictions/shipment-price", response_model=PricePredictionApiResponse)
+def predict_shipment_price_endpoint(req: PricePredictionApiRequest) -> PricePredictionApiResponse:
+    """
+    ML Shipment Price Prediction & Rate Benchmark API.
+    Provides non-binding statistical price forecasts and variance comparison
+    against active provider quotes. Strictly preserves provider quote authority.
+    """
+    try:
+        if req.model_type == "reference_sculpture":
+            ref_dict = req.reference_features or {
+                "Artist Reputation": 0.5,
+                "Height": req.height_cm,
+                "Width": req.width_cm,
+                "Weight": req.parcel_weight_kg * 1000.0,
+                "Material": "Brass",
+                "Price Of Sculpture": 500.0,
+                "Base Shipping Price": 20.0,
+                "International": "No",
+                "Express Shipment": "Yes" if "EXPRESS" in req.courier_code.upper() else "No",
+                "Installation Included": "No",
+                "Transport": "Airways",
+                "Fragile": "Yes",
+                "Customer Information": "Working Class",
+                "Remote": "No",
+                "Scheduled Date": "2026-10-23",
+                "Delivery Date": "2026-10-26",
+            }
+            ref_feat = ReferenceSculptureFeatures(**ref_dict)
+            pred = predict_shipment_price(ref_feat)
+            return PricePredictionApiResponse(
+                predicted_price=pred.predicted_price,
+                currency=pred.currency,
+                model_name=pred.model_name,
+                model_version=pred.model_version,
+                feature_schema_version=pred.feature_schema_version,
+                status=pred.status,
+                is_provider_quote=False,
+                confidence_interval=pred.confidence_interval,
+                input_summary=pred.input_summary,
+                limitations=pred.limitations,
+                explanation=pred.explanation,
+                quote_comparison=None,
+                agent_advice="Reference sculpture model (USD) evaluated. For Indian domestic parcel rates in INR, select domestic_courier model.",
+                recommended_action="Use domestic_courier model for domestic PIN routing and volumetric weight calculations.",
+                error_message=pred.error_message,
+            )
+
+        # Domestic courier model (default)
+        features = DomesticCourierFeatures(
+            origin_pin=req.origin_pin,
+            destination_pin=req.destination_pin,
+            length_cm=req.length_cm,
+            width_cm=req.width_cm,
+            height_cm=req.height_cm,
+            parcel_weight_kg=req.parcel_weight_kg,
+            package_type=req.package_type,
+            courier_code=req.courier_code,
+            is_cod=req.is_cod,
+            cod_amount=req.cod_amount,
+        )
+
+        active_quote = None
+        if req.quote_cost is not None:
+            active_quote = {
+                "cost": req.quote_cost,
+                "courier_code": req.courier_code,
+                "courier_name": req.quote_courier_name or req.courier_code,
+            }
+
+        service = ShipmentPricePredictionService()
+        svc_resp: PricePredictionServiceResponse = service.predict_and_compare(features, active_quote=active_quote)
+
+        qc_dto = None
+        if svc_resp.quote_comparison:
+            qc = svc_resp.quote_comparison
+            qc_dto = QuoteComparisonDto(
+                courier_code=qc.courier_code,
+                courier_name=qc.courier_name,
+                provider_quote_cost=qc.provider_quote_cost,
+                model_predicted_price=qc.model_predicted_price,
+                currency=qc.currency,
+                difference_amount=qc.difference_amount,
+                percentage_difference=qc.percentage_difference,
+                verdict=qc.verdict,
+                analysis=qc.analysis,
+            )
+
+        return PricePredictionApiResponse(
+            predicted_price=svc_resp.prediction.predicted_price,
+            currency=svc_resp.prediction.currency,
+            model_name=svc_resp.prediction.model_name,
+            model_version=svc_resp.prediction.model_version,
+            feature_schema_version=svc_resp.prediction.feature_schema_version,
+            status=svc_resp.prediction.status,
+            is_provider_quote=False,
+            confidence_interval=svc_resp.prediction.confidence_interval,
+            input_summary=svc_resp.prediction.input_summary,
+            limitations=svc_resp.prediction.limitations,
+            explanation=svc_resp.prediction.explanation,
+            quote_comparison=qc_dto,
+            agent_advice=svc_resp.agent_advice,
+            recommended_action=svc_resp.recommended_action,
+            error_message=svc_resp.prediction.error_message,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Price prediction error: {str(exc)}")
 
 
 @app.post("/api/rates")

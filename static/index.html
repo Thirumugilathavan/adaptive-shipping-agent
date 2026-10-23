@@ -202,6 +202,74 @@
               </div>
             </div>
 
+            <!-- ML Shipment Price Prediction & Market Benchmark Card -->
+            <div id="mlPredictionCard" class="card ml-prediction-card">
+              <div class="ml-card-header">
+                <div class="ml-title-group">
+                  <span class="badge-ml">🔮 ML Rate Intelligence</span>
+                  <h3 class="ml-heading">Machine Learning Price Benchmark</h3>
+                </div>
+                <div class="ml-model-switcher">
+                  <label for="mlModelSelect" class="ml-switcher-label">Model:</label>
+                  <select id="mlModelSelect" class="ml-select">
+                    <option value="domestic_courier" selected>🇮🇳 Domestic Courier (INR)</option>
+                    <option value="reference_sculpture">🏛️ Reference Sculpture (USD)</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Non-Binding Disclaimer Notice -->
+              <div class="ml-disclaimer-notice">
+                <span class="ml-disc-icon">ℹ️</span>
+                <span><strong>Non-Binding Statistical Estimate:</strong> ML rate benchmark for operational price validation. Carrier quotes strictly govern actual booking and billing.</span>
+              </div>
+
+              <!-- Price & Variance Metric Row -->
+              <div class="ml-metrics-grid">
+                <div class="ml-metric-box ml-price-box">
+                  <span class="ml-metric-label">Predicted Market Baseline</span>
+                  <div class="ml-price-value" id="mlPredictedPrice">₹ ---.--</div>
+                  <div class="ml-confidence-range" id="mlConfidenceInterval">90% CI: ₹ --- – ₹ ---</div>
+                </div>
+
+                <div class="ml-metric-box ml-variance-box">
+                  <span class="ml-metric-label">Selected Quote vs Benchmark</span>
+                  <div id="mlVarianceBadge" class="ml-badge-container">
+                    <span class="badge-variance badge-neutral">Awaiting Comparison</span>
+                  </div>
+                  <div class="ml-variance-desc" id="mlVarianceDesc">Variance against active courier quote</div>
+                </div>
+              </div>
+
+              <!-- Explanation & Agent Advice -->
+              <div class="ml-advice-box">
+                <div class="ml-advice-title">💡 Agent Pricing Advice:</div>
+                <p id="mlAdviceText" class="ml-advice-text">Establish baseline by calculating courier rates.</p>
+                <div class="ml-action-callout" id="mlRecommendedAction">Action: Review live quotes.</div>
+              </div>
+
+              <!-- Model Metadata & Limitations Footer -->
+              <div class="ml-footer">
+                <div class="ml-meta-chips">
+                  <span class="ml-chip" id="mlMetaModel">GradientBoostingRegressor</span>
+                  <span class="ml-chip" id="mlMetaVersion">v1.0.0</span>
+                  <span class="ml-chip" id="mlMetaSchema">Schema v1.0.0</span>
+                </div>
+                <button type="button" class="btn-link" id="btnToggleMlDetails">View Limitations & Features ▾</button>
+              </div>
+
+              <div class="ml-limitations-drawer hidden" id="mlLimitationsDrawer">
+                <div class="ml-drawer-content">
+                  <h5>Model Assumptions & Operational Limitations:</h5>
+                  <ul id="mlLimitationsList" class="ml-bullet-list">
+                    <li>Statistical regression trained on domestic regional PIN codes, dimensional volume, and weight slabs.</li>
+                    <li>Accessorial fuel, octroi, and emergency surcharges are estimated statistically.</li>
+                    <li>Binding contractual provider quotes always take precedence over ML estimates.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
             <!-- Courier Comparison List -->
             <div class="couriers-section">
               <div class="section-header-row">

@@ -19,7 +19,7 @@ from src.domain.official_scenarios import OfficialScenariosRunner
 from src.domain.models import ShipmentStatus
 from src.persistence.database import DatabaseManager
 
-APP_FILE = str(Path(__file__).resolve().parent.parent / "app.py")
+APP_FILE = str(Path(__file__).resolve().parent.parent / "src" / "ui" / "app.py")
 
 
 @pytest.fixture

@@ -42,6 +42,7 @@ from src.domain.reconciliation import ShipmentDispatchService, ReconciliationRes
 from src.domain.verification import ShipmentVerificationService, VerificationReport, VerificationStatus
 from src.persistence.state_machine import ApprovalRecord
 from src.providers.base import CourierProvider, ShipmentResult, PickupResult
+from src.domain.agent_tools import execute_predict_shipment_price_tool
 
 
 class DecisionTraceStatus(str, Enum):
@@ -394,6 +395,74 @@ class AgentDecisionEngine:
         )
 
         return eval_results
+
+    def run_predict_price(
+        self,
+        order: OrderInput,
+        trace: AgentDecisionTrace,
+        active_quote: Optional[CourierQuote] = None,
+        model_type: str = "domestic_courier",
+    ) -> Optional[Dict[str, Any]]:
+        """Stage B (Extended): Execute non-binding ML price prediction and benchmark against active quote."""
+        sender_pin = getattr(order.sender, "pin_code", None) or getattr(order.sender, "pincode", "110001")
+        recipient_pin = getattr(order.recipient, "pin_code", None) or getattr(order.recipient, "pincode", "400001")
+        courier_code = active_quote.courier_code if active_quote else "DEMO_AIR_EXPRESS"
+        courier_name = active_quote.courier_name if active_quote else "Default Air Express"
+        quote_cost = float(active_quote.cost_breakdown.total_cost) if (active_quote and active_quote.cost_breakdown) else None
+
+        tool_inputs = {
+            "origin_pin": str(sender_pin),
+            "destination_pin": str(recipient_pin),
+            "length_cm": float(order.dimensions.length_cm),
+            "width_cm": float(order.dimensions.width_cm),
+            "height_cm": float(order.dimensions.height_cm),
+            "parcel_weight_kg": float(order.parcel_weight_kg),
+            "package_type": order.package_type.value if hasattr(order.package_type, "value") else str(order.package_type),
+            "courier_code": courier_code,
+            "is_cod": bool(order.is_cod),
+            "cod_amount": float(order.cod_amount) if order.cod_amount else 0.0,
+            "model_type": model_type,
+            "quote_cost": quote_cost,
+            "quote_courier_name": courier_name,
+        }
+
+        try:
+            res = execute_predict_shipment_price_tool(tool_inputs)
+            status = DecisionTraceStatus.VERIFIED if res.get("status") == "SUCCESS" else DecisionTraceStatus.UNRESOLVED
+
+            pred_cost = res.get("predicted_price")
+            curr = res.get("currency", "INR")
+            ci = res.get("confidence_interval")
+            ci_str = f" [{curr} {ci[0]:.2f} - {curr} {ci[1]:.2f}]" if ci else ""
+
+            summary = (
+                f"ML Rate Benchmark: {curr} {pred_cost:.2f}{ci_str} via {res.get('model_type')} model. "
+                f"{res.get('agent_advice', '')}"
+            ) if pred_cost is not None else "ML price prediction model unavailable or encountered an error."
+
+            trace.add_step(
+                stage="Stage B: Evaluate Alternatives",
+                title="3b. ML Shipment Price Prediction and Market Benchmark",
+                status=status,
+                summary=summary,
+                evidence=res,
+                explanation=(
+                    f"{res.get('explanation', '')} "
+                    "Non-binding statistical estimate generated for operational rate benchmarking. "
+                    "Final dispatch booking strictly relies on verified carrier quotes."
+                ),
+            )
+            return res
+        except Exception as exc:
+            trace.add_step(
+                stage="Stage B: Evaluate Alternatives",
+                title="3b. ML Shipment Price Prediction and Market Benchmark",
+                status=DecisionTraceStatus.UNRESOLVED,
+                summary=f"ML rate prediction bypassed: {exc}",
+                evidence={"error": str(exc)},
+                explanation="Statistical rate prediction failed. Gracefully falling back to carrier provider quotes.",
+            )
+            return None
 
     def run_evaluation_stage(
         self,

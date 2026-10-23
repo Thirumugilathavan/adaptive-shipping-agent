@@ -88,6 +88,22 @@ const elements = {
   modalTitle: document.getElementById('modalTitle'),
   modalBody: document.getElementById('modalBody'),
   modalCloseBtn: document.getElementById('modalCloseBtn'),
+
+  // ML Rate Intelligence
+  mlPredictionCard: document.getElementById('mlPredictionCard'),
+  mlModelSelect: document.getElementById('mlModelSelect'),
+  mlPredictedPrice: document.getElementById('mlPredictedPrice'),
+  mlConfidenceInterval: document.getElementById('mlConfidenceInterval'),
+  mlVarianceBadge: document.getElementById('mlVarianceBadge'),
+  mlVarianceDesc: document.getElementById('mlVarianceDesc'),
+  mlAdviceText: document.getElementById('mlAdviceText'),
+  mlRecommendedAction: document.getElementById('mlRecommendedAction'),
+  mlMetaModel: document.getElementById('mlMetaModel'),
+  mlMetaVersion: document.getElementById('mlMetaVersion'),
+  mlMetaSchema: document.getElementById('mlMetaSchema'),
+  btnToggleMlDetails: document.getElementById('btnToggleMlDetails'),
+  mlLimitationsDrawer: document.getElementById('mlLimitationsDrawer'),
+  mlLimitationsList: document.getElementById('mlLimitationsList'),
 };
 
 // -----------------------------------------------------------------------------
@@ -103,6 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupPackagingTab();
   setupAuditTab();
   setupModal();
+  setupMlPrediction();
   updateLiveVolumetric();
 });
 
@@ -334,6 +351,7 @@ function renderRateResults(data) {
   });
 
   updateApprovalSummary();
+  fetchAndRenderMlPrediction();
 }
 
 window.toggleBreakdown = function(quoteId, event) {
@@ -350,6 +368,7 @@ function selectCourier(quoteId) {
     c.classList.toggle('selected', c.getAttribute('data-id') === quoteId);
   });
   updateApprovalSummary();
+  fetchAndRenderMlPrediction();
 }
 
 // -----------------------------------------------------------------------------
@@ -741,4 +760,125 @@ function showModal(title, htmlContent) {
 
 function hideModal() {
   elements.appModal.classList.add('hidden');
+}
+
+
+// -----------------------------------------------------------------------------
+// Machine Learning Price Prediction & Benchmark
+// -----------------------------------------------------------------------------
+
+function setupMlPrediction() {
+  if (elements.mlModelSelect) {
+    elements.mlModelSelect.addEventListener('change', () => {
+      fetchAndRenderMlPrediction();
+    });
+  }
+  if (elements.btnToggleMlDetails) {
+    elements.btnToggleMlDetails.addEventListener('click', () => {
+      elements.mlLimitationsDrawer.classList.toggle('hidden');
+      const isHidden = elements.mlLimitationsDrawer.classList.contains('hidden');
+      elements.btnToggleMlDetails.textContent = isHidden ? 'View Limitations & Features ▾' : 'Hide Limitations & Features ▴';
+    });
+  }
+}
+
+async function fetchAndRenderMlPrediction() {
+  if (!elements.mlPredictedPrice) return;
+  if (!state.activeOrder && (!elements.dimLength || !elements.dimLength.value)) return;
+
+  const modelType = elements.mlModelSelect ? elements.mlModelSelect.value : 'domestic_courier';
+  const selectedQuote = state.activeQuotes.find(q => q.quote_id === state.selectedQuoteId) || state.activeQuotes[0];
+
+  const payload = {
+    origin_pin: document.getElementById('senderPin') ? document.getElementById('senderPin').value : '110001',
+    destination_pin: document.getElementById('recipientPin') ? document.getElementById('recipientPin').value : '400001',
+    length_cm: parseFloat(elements.dimLength.value) || 20.0,
+    width_cm: parseFloat(elements.dimWidth.value) || 15.0,
+    height_cm: parseFloat(elements.dimHeight.value) || 10.0,
+    parcel_weight_kg: parseFloat(elements.dimWeight.value) || 1.5,
+    package_type: document.getElementById('packageType') ? document.getElementById('packageType').value : 'box',
+    courier_code: selectedQuote ? selectedQuote.courier_code : 'DEMO_AIR_EXPRESS',
+    is_cod: elements.paymentMode ? elements.paymentMode.value === 'cod' : false,
+    cod_amount: elements.paymentMode && elements.paymentMode.value === 'cod' ? (parseFloat(elements.codAmount.value) || 0.0) : 0.0,
+    model_type: modelType,
+    quote_cost: selectedQuote && selectedQuote.cost_breakdown ? selectedQuote.cost_breakdown.total_cost : null,
+    quote_courier_name: selectedQuote ? selectedQuote.courier_name : null,
+  };
+
+  try {
+    elements.mlPredictedPrice.textContent = 'Calculating...';
+    const res = await fetch('/api/v1/predictions/shipment-price', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      elements.mlPredictedPrice.textContent = 'Unavailable';
+      elements.mlConfidenceInterval.textContent = 'Model error';
+      return;
+    }
+
+    const data = await res.json();
+    const currSym = data.currency === 'USD' ? '$' : '₹';
+
+    if (data.predicted_price !== null && data.predicted_price !== undefined) {
+      elements.mlPredictedPrice.textContent = `${currSym} ${data.predicted_price.toFixed(2)}`;
+    } else {
+      elements.mlPredictedPrice.textContent = 'N/A';
+    }
+
+    if (data.confidence_interval && data.confidence_interval.length === 2) {
+      elements.mlConfidenceInterval.textContent = `90% CI: ${currSym} ${data.confidence_interval[0].toFixed(2)} – ${currSym} ${data.confidence_interval[1].toFixed(2)}`;
+    } else {
+      elements.mlConfidenceInterval.textContent = 'CI: Not Available';
+    }
+
+    // Variance badge & analysis
+    if (data.quote_comparison) {
+      const qc = data.quote_comparison;
+      let badgeClass = 'badge-neutral';
+      let badgeIcon = 'ℹ️';
+
+      if (qc.verdict === 'CONGRUENT') {
+        badgeClass = 'badge-congruent';
+        badgeIcon = '✓';
+      } else if (qc.verdict === 'COMPETITIVE_DISCOUNT') {
+        badgeClass = 'badge-discount';
+        badgeIcon = '⚡';
+      } else if (qc.verdict === 'PREMIUM_OVERRUN') {
+        badgeClass = 'badge-overrun';
+        badgeIcon = '⚠️';
+      }
+
+      const sign = qc.percentage_difference > 0 ? '+' : '';
+      elements.mlVarianceBadge.innerHTML = `
+        <span class="badge-variance ${badgeClass}">
+          ${badgeIcon} ${qc.verdict.replace('_', ' ')} (${sign}${qc.percentage_difference}%)
+        </span>
+      `;
+      elements.mlVarianceDesc.textContent = qc.analysis;
+    } else {
+      elements.mlVarianceBadge.innerHTML = `<span class="badge-variance badge-neutral">No Active Quote</span>`;
+      elements.mlVarianceDesc.textContent = 'Select or compute carrier quotes to view comparison variance.';
+    }
+
+    // Advice & action
+    elements.mlAdviceText.textContent = data.agent_advice || data.explanation;
+    elements.mlRecommendedAction.textContent = `Action: ${data.recommended_action || 'Review live rates'}`;
+
+    // Meta chips
+    elements.mlMetaModel.textContent = `Model: ${data.model_name}`;
+    elements.mlMetaVersion.textContent = `v${data.model_version}`;
+    elements.mlMetaSchema.textContent = `Schema v${data.feature_schema_version}`;
+
+    // Limitations
+    if (data.limitations && data.limitations.length > 0) {
+      elements.mlLimitationsList.innerHTML = data.limitations.map(l => `<li>${l}</li>`).join('');
+    }
+  } catch (err) {
+    console.warn('ML Prediction lookup error:', err);
+    elements.mlPredictedPrice.textContent = 'Error';
+    elements.mlConfidenceInterval.textContent = err.message;
+  }
 }
