@@ -27,11 +27,7 @@
     </div>
     <div class="header-right">
       <div class="provider-pill">
-        <label for="providerModeSelect">Provider Mode:</label>
-        <select id="providerModeSelect" class="provider-select">
-          <option value="demo">Demo Shipping Adapter (Simulated)</option>
-          <option value="shipengine">ShipEngine Sandbox (Real API)</option>
-        </select>
+        <span class="provider-badge" id="providerBadge" title="100% Offline Local Simulation">⚙️ Local Demo Adapter (Simulated)</span>
       </div>
       <div class="status-indicator">
         <span class="status-dot"></span>
@@ -240,18 +236,36 @@
             <!-- Quick Summary Strip -->
             <div class="shipment-summary-strip" id="step2SummaryStrip"></div>
 
+            <!-- Unserviceable Route Alert -->
+            <div id="unserviceableRouteAlert" class="alert-box alert-danger hidden" style="margin-bottom: 16px; padding: 14px 18px; border-radius: var(--radius-md); border-left: 5px solid var(--danger); background-color: var(--danger-bg);">
+              <h4 id="unserviceableAlertTitle" style="color: var(--danger); font-size: 15px; font-weight: 700; margin-bottom: 4px;">Destination Unserviceable</h4>
+              <p id="unserviceableAlertMsg" style="color: var(--text-main); font-size: 13px;"></p>
+            </div>
+
             <!-- Advisor Recommendation Card -->
             <div id="advisorCard" class="card advisor-card">
               <div class="advisor-header">
                 <span class="badge-recommendation">RECOMMENDED ADVISOR PICK</span>
-                <h3 id="advCourierName">Demo Air Express</h3>
+                <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px;">
+                  <h3 id="advCourierName">Demo Air Express</h3>
+                  <div style="font-size: 14px; font-weight: 700; color: var(--primary);">
+                    <span id="advWinningCost">INR --.--</span> &bull; <span id="advWinningSla">-- Days SLA</span>
+                  </div>
+                </div>
               </div>
               <p id="advExplanation" class="advisor-explanation"></p>
               
-              <!-- Tradeoff Warning if any -->
+              <!-- Winning Reasons -->
+              <div id="advWinnerReasonsBox" class="winner-reasons-box" style="margin-top: 10px; padding: 10px 14px; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-sm);">
+                <strong style="color: #166534; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Why This Courier Won:</strong>
+                <ul id="advWinnerReasonsList" style="margin-left: 18px; margin-top: 4px; font-size: 13px; color: #15803d;"></ul>
+              </div>
+
+              <!-- Tradeoff Analysis -->
               <div id="advTradeoffBox" class="tradeoff-box hidden">
-                <strong>Preference Trade-off Notice:</strong>
-                <ul id="advTradeoffList"></ul>
+                <strong>Cost vs. Delivery Trade-off Analysis:</strong>
+                <div id="advTradeoffText" style="margin-top: 4px; font-size: 13px;"></div>
+                <ul id="advTradeoffList" style="margin-top: 4px;"></ul>
               </div>
             </div>
 
@@ -265,8 +279,9 @@
                 <div class="ml-model-switcher">
                   <label for="mlModelSelect" class="ml-switcher-label">Model:</label>
                   <select id="mlModelSelect" class="ml-select">
-                    <option value="domestic_courier" selected>Domestic Courier (INR)</option>
-                    <option value="reference_sculpture">Reference Sculpture (USD)</option>
+                    <option value="domestic_courier" selected>Model 1: Domestic Baseline (INR)</option>
+                    <option value="model2_catboost">Model 2: Courier Intelligence (CatBoost INR)</option>
+                    <option value="reference_sculpture">Reference: Sculpture Benchmark (USD)</option>
                   </select>
                 </div>
               </div>
@@ -330,6 +345,49 @@
                 <span id="rateCountBadge" class="badge-count">0 Couriers Evaluated</span>
               </div>
               <div id="courierCardsList" class="courier-cards-grid"></div>
+            </div>
+
+            <!-- Detailed Comparison Table Section -->
+            <div class="courier-comparison-section" style="margin-top: 28px;">
+              <div class="section-header-row">
+                <div>
+                  <h3 style="font-size: 16px; font-weight: 700; color: var(--primary-dark);">Transparent Courier Comparison &amp; Audit Breakdown</h3>
+                  <p class="section-subtitle" style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">
+                    Deterministic fee breakdown and serviceability evaluation across all candidate couriers.
+                  </p>
+                </div>
+              </div>
+              <div class="table-responsive" style="margin-top: 10px;">
+                <table class="data-table" id="comparisonTable">
+                  <thead>
+                    <tr>
+                      <th>Courier &amp; Mode</th>
+                      <th>Serviceability</th>
+                      <th>Billable Wt</th>
+                      <th>Base Freight</th>
+                      <th>Fuel</th>
+                      <th>COD Fee</th>
+                      <th>GST (18%)</th>
+                      <th>Total Cost</th>
+                      <th>Est. SLA</th>
+                      <th>Outcome</th>
+                    </tr>
+                  </thead>
+                  <tbody id="comparisonTableBody">
+                    <tr>
+                      <td colspan="10" class="text-center" style="padding: 16px; color: var(--text-muted);">
+                        Calculate rates to view detailed courier comparison.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Loss & Exclusion Rationales -->
+            <div id="lossReasonsSection" class="card" style="margin-top: 20px; background-color: #f8fafc; border: 1px solid var(--border-card);">
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--primary-dark); margin-bottom: 8px;">Courier Loss &amp; Exclusion Rationales</h4>
+              <div id="lossReasonsList" style="font-size: 13px; color: var(--text-muted); display: flex; flex-direction: column; gap: 6px;"></div>
             </div>
 
             <!-- Footer Navigation -->

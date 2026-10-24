@@ -67,16 +67,27 @@ const elements = {
 
   // Step 2 Rate Selection
   step2SummaryStrip: document.getElementById('step2SummaryStrip'),
+  unserviceableRouteAlert: document.getElementById('unserviceableRouteAlert'),
+  unserviceableAlertTitle: document.getElementById('unserviceableAlertTitle'),
+  unserviceableAlertMsg: document.getElementById('unserviceableAlertMsg'),
   btnBackToStep1: document.getElementById('btnBackToStep1'),
   btnNavBackTo1: document.getElementById('btnNavBackTo1'),
   btnProceedToApproval: document.getElementById('btnProceedToApproval'),
   advisorCard: document.getElementById('advisorCard'),
   advCourierName: document.getElementById('advCourierName'),
+  advWinningCost: document.getElementById('advWinningCost'),
+  advWinningSla: document.getElementById('advWinningSla'),
   advExplanation: document.getElementById('advExplanation'),
+  advWinnerReasonsBox: document.getElementById('advWinnerReasonsBox'),
+  advWinnerReasonsList: document.getElementById('advWinnerReasonsList'),
   advTradeoffBox: document.getElementById('advTradeoffBox'),
+  advTradeoffText: document.getElementById('advTradeoffText'),
   advTradeoffList: document.getElementById('advTradeoffList'),
   rateCountBadge: document.getElementById('rateCountBadge'),
   courierCardsList: document.getElementById('courierCardsList'),
+  comparisonTableBody: document.getElementById('comparisonTableBody'),
+  lossReasonsSection: document.getElementById('lossReasonsSection'),
+  lossReasonsList: document.getElementById('lossReasonsList'),
 
   // Step 3 Approval Gate
   btnNavBackTo2: document.getElementById('btnNavBackTo2'),
@@ -269,9 +280,11 @@ function setupTabs() {
     });
   });
 
-  elements.providerSelect.addEventListener('change', (e) => {
-    state.providerMode = e.target.value;
-  });
+  if (elements.providerSelect) {
+    elements.providerSelect.addEventListener('change', (e) => {
+      state.providerMode = e.target.value;
+    });
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -389,7 +402,7 @@ async function fetchAndRenderRates() {
 
 function renderRateResults(data) {
   state.activeOrder = data.order;
-  state.activeQuotes = data.quotes;
+  state.activeQuotes = data.quotes || [];
   state.rankingResult = data.ranking;
   state.advisorResult = data.advisor;
 
@@ -407,84 +420,221 @@ function renderRateResults(data) {
     `;
   }
 
-  // 2. Advisor Recommendation
-  if (data.advisor && data.advisor.recommended_quote) {
-    const rec = data.advisor.recommended_quote;
-    elements.advCourierName.textContent = `${rec.courier_name} (${rec.service_type})`;
-    elements.advExplanation.textContent = data.advisor.explanation || 'Selected as best candidate based on your shipping criteria.';
+  const hasEligible = Boolean(data.has_eligible_couriers && data.selected_quote_id);
 
-    // Tradeoffs
-    if (data.advisor.tradeoffs && data.advisor.tradeoffs.length > 0) {
-      elements.advTradeoffBox.classList.remove('hidden');
-      elements.advTradeoffList.innerHTML = data.advisor.tradeoffs.map(t => `<li>${t}</li>`).join('');
-    } else {
-      elements.advTradeoffBox.classList.add('hidden');
+  // 2. Serviceability Banner & Advisor Recommendation Handling
+  if (!hasEligible) {
+    // Show prominent unserviceable / no-eligible-courier alert
+    if (elements.unserviceableRouteAlert) {
+      elements.unserviceableRouteAlert.classList.remove('hidden');
+      if (elements.unserviceableAlertTitle) {
+        elements.unserviceableAlertTitle.textContent = 'Destination Unserviceable / No Eligible Couriers';
+      }
+      if (elements.unserviceableAlertMsg) {
+        elements.unserviceableAlertMsg.textContent =
+          (data.ranking && data.ranking.decision_explanation) ||
+          (data.advisor && data.advisor.explanation) ||
+          'All evaluated couriers are unserviceable or excluded by operational constraints for this route.';
+      }
+    }
+    if (elements.advisorCard) {
+      elements.advisorCard.classList.add('hidden');
+    }
+    state.selectedQuoteId = null;
+  } else {
+    // Route is serviceable and has eligible winner
+    if (elements.unserviceableRouteAlert) {
+      elements.unserviceableRouteAlert.classList.add('hidden');
+    }
+    if (elements.advisorCard) {
+      elements.advisorCard.classList.remove('hidden');
+    }
+
+    const rec = (data.advisor && data.advisor.primary_recommendation) ||
+                (data.advisor && data.advisor.recommended_quote) ||
+                (data.ranking && data.ranking.selected_winner && data.ranking.selected_winner.quote);
+
+    if (rec) {
+      if (elements.advCourierName) {
+        elements.advCourierName.textContent = `${rec.courier_name} (${rec.service_type})`;
+      }
+      if (elements.advWinningCost) {
+        const costVal = rec.cost_breakdown ? rec.cost_breakdown.total_cost.toFixed(2) : '--.--';
+        elements.advWinningCost.textContent = `INR ${costVal}`;
+      }
+      if (elements.advWinningSla) {
+        elements.advWinningSla.textContent = `${rec.estimated_delivery_days || '--'} Days SLA`;
+      }
+      if (elements.advExplanation) {
+        elements.advExplanation.textContent =
+          (data.advisor && data.advisor.explanation) ||
+          (data.ranking && data.ranking.decision_explanation) ||
+          'Selected as best candidate based on your shipping criteria.';
+      }
+
+      // Winner Reasons
+      const winnerReasons = data.winner_reasons || (data.ranking && data.ranking.winner_reasons) || [];
+      if (elements.advWinnerReasonsBox && elements.advWinnerReasonsList) {
+        if (winnerReasons.length > 0) {
+          elements.advWinnerReasonsBox.classList.remove('hidden');
+          elements.advWinnerReasonsList.innerHTML = winnerReasons.map(r => `<li>${r}</li>`).join('');
+        } else {
+          elements.advWinnerReasonsBox.classList.remove('hidden');
+          elements.advWinnerReasonsList.innerHTML = '<li>Satisfies operational SLA and provides lowest landed freight cost.</li>';
+        }
+      }
+
+      // Trade-off Analysis
+      const tradeOffText = data.trade_off_analysis || (data.ranking && data.ranking.trade_off_analysis) || '';
+      const tradeoffItems = (data.advisor && data.advisor.tradeoffs) || [];
+      if (elements.advTradeoffBox) {
+        if (tradeOffText || tradeoffItems.length > 0) {
+          elements.advTradeoffBox.classList.remove('hidden');
+          if (elements.advTradeoffText) {
+            elements.advTradeoffText.textContent = tradeOffText;
+          }
+          if (elements.advTradeoffList) {
+            elements.advTradeoffList.innerHTML = tradeoffItems.map(t => `<li>${t}</li>`).join('');
+          }
+        } else {
+          elements.advTradeoffBox.classList.add('hidden');
+        }
+      }
+
+      state.selectedQuoteId = data.selected_quote_id || rec.quote_id;
     }
   }
 
   // 3. Render Courier Cards
-  elements.rateCountBadge.textContent = `${data.quotes.length} Couriers Evaluated`;
-  elements.courierCardsList.innerHTML = '';
+  if (elements.rateCountBadge) {
+    elements.rateCountBadge.textContent = `${data.quotes.length} Couriers Evaluated`;
+  }
+  if (elements.courierCardsList) {
+    elements.courierCardsList.innerHTML = '';
 
-  state.selectedQuoteId = data.selected_quote_id || (data.quotes[0] ? data.quotes[0].quote_id : null);
+    data.quotes.forEach(quote => {
+      const isSelected = quote.quote_id === state.selectedQuoteId;
+      const isWinner = data.ranking?.selected_winner?.quote?.quote_id === quote.quote_id;
+      const isSvc = (quote.is_serviceable !== false) && (quote.is_eligible !== false);
 
-  data.quotes.forEach(quote => {
-    const isSelected = quote.quote_id === state.selectedQuoteId;
-    const isWinner = data.ranking?.selected_winner?.quote?.quote_id === quote.quote_id;
+      const card = document.createElement('div');
+      card.className = `courier-card ${isSelected ? 'selected' : ''} ${!isSvc ? 'unserviceable' : ''}`;
+      card.setAttribute('data-id', quote.quote_id);
 
-    const card = document.createElement('div');
-    card.className = `courier-card ${isSelected ? 'selected' : ''}`;
-    card.setAttribute('data-id', quote.quote_id);
+      const costStr = quote.cost_breakdown ? `INR ${quote.cost_breakdown.total_cost.toFixed(2)}` : 'N/A';
+      const slabKg = quote.weight_result ? `${quote.weight_result.billing_slab_kg.toFixed(2)} kg` : '0.50 kg';
 
-    const costStr = quote.cost_breakdown ? `INR ${quote.cost_breakdown.total_cost.toFixed(2)}` : 'N/A';
-    const slabKg = quote.weight_result ? `${quote.weight_result.billing_slab_kg.toFixed(2)} kg` : '0.50 kg';
-
-    card.innerHTML = `
-      <div class="courier-card-header">
-        <div class="courier-info">
-          <div class="courier-name-row">
-            <span class="courier-name">${quote.courier_name}</span>
-            ${isWinner ? '<span class="badge-recommendation">Lowest Cost</span>' : ''}
-            <span class="courier-mode-badge">${quote.service_type}</span>
+      card.innerHTML = `
+        <div class="courier-card-header">
+          <div class="courier-info">
+            <div class="courier-name-row">
+              <span class="courier-name">${quote.courier_name}</span>
+              ${isWinner ? '<span class="badge-recommendation">Recommended Winner</span>' : ''}
+              <span class="courier-mode-badge">${quote.service_type}</span>
+            </div>
+            <div class="courier-meta">
+              <span>Estimated Delivery: <strong>${quote.estimated_delivery_days || 3} Business Days</strong></span>
+              <span>Billing Slab: <strong>${slabKg}</strong></span>
+              ${!isSvc ? '<span class="text-danger" style="font-weight:700;">Unserviceable Route / Excluded</span>' : ''}
+            </div>
           </div>
-          <div class="courier-meta">
-            <span>Estimated Delivery: <strong>${quote.estimated_delivery_days || 3} Business Days</strong></span>
-            <span>Billing Slab: <strong>${slabKg}</strong></span>
-            ${quote.is_serviceable === false ? '<span class="text-danger">Unserviceable Route</span>' : ''}
+          <div class="courier-pricing">
+            <div class="total-cost">${costStr}</div>
+            ${quote.cost_breakdown ? `<span class="breakdown-toggle" onclick="toggleBreakdown('${quote.quote_id}', event)">View Fee Breakdown</span>` : ''}
           </div>
-        </div>
-        <div class="courier-pricing">
-          <div class="total-cost">${costStr}</div>
-          <span class="breakdown-toggle" onclick="toggleBreakdown('${quote.quote_id}', event)">View Fee Breakdown</span>
-        </div>
-      </div>
-    `;
-
-    // Fee breakdown drawer
-    const drawer = document.createElement('div');
-    drawer.className = 'breakdown-drawer hidden';
-    drawer.id = `drawer-${quote.quote_id}`;
-    if (quote.cost_breakdown) {
-      drawer.innerHTML = `
-        <div class="breakdown-row"><span>Base Freight:</span> <strong>INR ${quote.cost_breakdown.base_freight.toFixed(2)}</strong></div>
-        <div class="breakdown-row"><span>Fuel Surcharge (${quote.cost_breakdown.fuel_surcharge_rate_pct}%):</span> <strong>INR ${quote.cost_breakdown.fuel_surcharge.toFixed(2)}</strong></div>
-        <div class="breakdown-row"><span>COD Handling Fee:</span> <strong>INR ${quote.cost_breakdown.cod_fee.toFixed(2)}</strong></div>
-        <div class="breakdown-row"><span>GST / Tax (${quote.cost_breakdown.tax_rate_pct}%):</span> <strong>INR ${quote.cost_breakdown.tax_amount.toFixed(2)}</strong></div>
-        <div class="breakdown-row" style="border-top:1px solid #cbd5e1; margin-top:6px; padding-top:6px;">
-          <span>Total Landed Cost:</span> <strong style="color:#1e3a8a;">INR ${quote.cost_breakdown.total_cost.toFixed(2)}</strong>
         </div>
       `;
-    }
-    card.appendChild(drawer);
 
-    card.addEventListener('click', (e) => {
-      if (e.target.classList.contains('breakdown-toggle')) return;
-      selectCourier(quote.quote_id);
+      // Fee breakdown drawer
+      if (quote.cost_breakdown) {
+        const drawer = document.createElement('div');
+        drawer.className = 'breakdown-drawer hidden';
+        drawer.id = `drawer-${quote.quote_id}`;
+        drawer.innerHTML = `
+          <div class="breakdown-row"><span>Base Freight:</span> <strong>INR ${quote.cost_breakdown.base_freight.toFixed(2)}</strong></div>
+          <div class="breakdown-row"><span>Fuel Surcharge (${quote.cost_breakdown.fuel_surcharge_rate_pct}%):</span> <strong>INR ${quote.cost_breakdown.fuel_surcharge.toFixed(2)}</strong></div>
+          <div class="breakdown-row"><span>COD Handling Fee:</span> <strong>INR ${quote.cost_breakdown.cod_fee.toFixed(2)}</strong></div>
+          <div class="breakdown-row"><span>GST / Tax (${quote.cost_breakdown.tax_rate_pct}%):</span> <strong>INR ${quote.cost_breakdown.tax_amount.toFixed(2)}</strong></div>
+          <div class="breakdown-row" style="border-top:1px solid #cbd5e1; margin-top:6px; padding-top:6px;">
+            <span>Total Landed Cost:</span> <strong style="color:#1e3a8a;">INR ${quote.cost_breakdown.total_cost.toFixed(2)}</strong>
+          </div>
+        `;
+        card.appendChild(drawer);
+      }
+
+      card.addEventListener('click', (e) => {
+        if (e.target.classList.contains('breakdown-toggle')) return;
+        if (!isSvc) {
+          alert(`Cannot select ${quote.courier_name}: This courier is unserviceable or excluded for this route.`);
+          return;
+        }
+        selectCourier(quote.quote_id);
+      });
+
+      elements.courierCardsList.appendChild(card);
     });
+  }
 
-    elements.courierCardsList.appendChild(card);
-  });
+  // 4. Render Transparent Comparison Table
+  if (elements.comparisonTableBody && data.comparison_table) {
+    if (data.comparison_table.length === 0) {
+      elements.comparisonTableBody.innerHTML = `
+        <tr><td colspan="10" class="text-center" style="padding:16px;">No candidate couriers evaluated.</td></tr>
+      `;
+    } else {
+      elements.comparisonTableBody.innerHTML = data.comparison_table.map(row => {
+        const svcBdg = row.is_serviceable
+          ? `<span class="badge-status-svc">Serviceable</span>`
+          : `<span class="badge-status-unsvc">${row.serviceability_status || 'Unserviceable'}</span>`;
 
+        let outcomeBdg = `<span class="badge-outcome-lost">Alternative</span>`;
+        if (row.is_winner) {
+          outcomeBdg = `<span class="badge-outcome-won">WINNER</span>`;
+        } else if (!row.is_eligible) {
+          outcomeBdg = `<span class="badge-outcome-excluded" title="${row.reason_summary || 'Excluded'}">EXCLUDED</span>`;
+        }
+
+        const bWt = row.billable_weight_kg != null ? `${row.billable_weight_kg.toFixed(2)} kg` : '—';
+        const bFreight = row.base_freight != null ? `₹ ${row.base_freight.toFixed(2)}` : '—';
+        const fuel = row.fuel_surcharge != null ? `₹ ${row.fuel_surcharge.toFixed(2)}` : '—';
+        const cod = row.cod_fee != null ? `₹ ${row.cod_fee.toFixed(2)}` : '—';
+        const tax = row.tax_amount != null ? `₹ ${row.tax_amount.toFixed(2)}` : '—';
+        const tot = row.total_cost != null ? `<strong>₹ ${row.total_cost.toFixed(2)}</strong>` : '—';
+        const sla = row.estimated_delivery_days != null ? `${row.estimated_delivery_days} Days` : '—';
+
+        return `
+          <tr>
+            <td><strong>${row.courier_name}</strong><br><small style="color:var(--text-muted);">${row.service_type}</small></td>
+            <td>${svcBdg}</td>
+            <td>${bWt}</td>
+            <td>${bFreight}</td>
+            <td>${fuel}</td>
+            <td>${cod}</td>
+            <td>${tax}</td>
+            <td>${tot}</td>
+            <td>${sla}</td>
+            <td>${outcomeBdg}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  // 5. Render Loss & Exclusion Rationales
+  if (elements.lossReasonsList) {
+    const lossEntries = Object.entries(data.loss_reasons || {});
+    if (lossEntries.length > 0) {
+      if (elements.lossReasonsSection) elements.lossReasonsSection.classList.remove('hidden');
+      elements.lossReasonsList.innerHTML = lossEntries.map(([code, reasons]) => {
+        const rList = Array.isArray(reasons) ? reasons.join('; ') : reasons;
+        return `<div><strong style="color:var(--primary-dark);">${code}:</strong> ${rList}</div>`;
+      }).join('');
+    } else {
+      if (elements.lossReasonsSection) elements.lossReasonsSection.classList.add('hidden');
+    }
+  }
+
+  // 6. Navigation Button State
   if (elements.btnProceedToApproval) {
     elements.btnProceedToApproval.disabled = !state.selectedQuoteId;
   }
@@ -502,6 +652,12 @@ window.toggleBreakdown = function(quoteId, event) {
 };
 
 function selectCourier(quoteId) {
+  const quote = state.activeQuotes.find(q => q.quote_id === quoteId);
+  if (!quote || quote.is_serviceable === false || quote.is_eligible === false) {
+    alert('This courier is unserviceable or excluded for this route and cannot be selected.');
+    return;
+  }
+
   state.selectedQuoteId = quoteId;
   document.querySelectorAll('.courier-card').forEach(c => {
     c.classList.toggle('selected', c.getAttribute('data-id') === quoteId);
@@ -550,6 +706,11 @@ async function executeDispatch() {
   const quote = state.activeQuotes.find(q => q.quote_id === state.selectedQuoteId);
   const order = state.activeOrder;
   if (!quote || !order) return;
+
+  if (quote.is_serviceable === false || quote.is_eligible === false) {
+    alert('Cannot dispatch: Selected courier is unserviceable or ineligible for this route.');
+    return;
+  }
 
   elements.btnApproveDispatch.disabled = true;
   elements.btnApproveDispatch.textContent = 'Dispatching with Carrier & Generating AWB...';
@@ -973,12 +1134,13 @@ async function fetchAndRenderMlPrediction() {
     if (data.predicted_price !== null && data.predicted_price !== undefined) {
       elements.mlPredictedPrice.textContent = `${currSym} ${data.predicted_price.toFixed(2)}`;
     } else {
-      elements.mlPredictedPrice.textContent = 'N/A';
+      elements.mlPredictedPrice.textContent = 'Unavailable';
+      elements.mlConfidenceInterval.textContent = data.error_message || 'Model Unavailable';
     }
 
     if (data.confidence_interval && data.confidence_interval.length === 2) {
       elements.mlConfidenceInterval.textContent = `90% CI: ${currSym} ${data.confidence_interval[0].toFixed(2)} – ${currSym} ${data.confidence_interval[1].toFixed(2)}`;
-    } else {
+    } else if (data.predicted_price !== null && data.predicted_price !== undefined) {
       elements.mlConfidenceInterval.textContent = 'CI: Not Available';
     }
 

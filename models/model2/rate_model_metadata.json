@@ -1,0 +1,17 @@
+{
+  "model_type": "catboost_regressor",
+  "target": "cost_inr",
+  "features": [
+    "pickup_pin",
+    "delivery_pin",
+    "weight_kg",
+    "length_cm",
+    "width_cm",
+    "height_cm",
+    "courier_name"
+  ],
+  "mae": 43.34232015614095,
+  "rmse": 58.42602891713052,
+  "row_count": 14000000,
+  "trained_at": "2026-10-24T00:20:08.129890"
+}

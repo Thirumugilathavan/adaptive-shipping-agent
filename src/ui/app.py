@@ -264,7 +264,6 @@ def _init_session():
         "scenario_test_results": {},
         "official_test_results": {},
         "active_provider_mode": "demo",
-        "shipengine_connection_status": None,
         "pref_flexible_budget": True,
         "pref_max_budget": 500.0,
         "pref_delivery_deadline": "Flexible delivery time",
@@ -297,73 +296,14 @@ def render_sidebar():
 
         # ── Shipping Provider Mode Selector ──
         st.markdown("** Shipping Provider**")
-        provider_mode_options = ["Demo Simulator", "ShipEngine Sandbox API"]
-        curr_provider_mode = st.session_state.get("active_provider_mode", "demo")
-        sel_idx = 1 if curr_provider_mode in ("shipengine", "shipengine_sandbox") else 0
-        provider_choice = st.radio(
-            "Select Provider",
-            provider_mode_options,
-            index=sel_idx,
-            key="provider_mode_radio",
-            label_visibility="collapsed",
+        st.session_state["active_provider_mode"] = "demo"
+        st.info(
+            "**LOCAL DEMO MODE (100% OFFLINE)**\n\nAll rates are computed "
+            "by the deterministic Demo Shipping Adapter and evaluated against "
+            "Model 1 and Model 2 (CatBoost) benchmarks. No external API calls are made.",
+            icon=None,
         )
-        active_mode = "shipengine" if "ShipEngine" in provider_choice else "demo"
-        if active_mode != st.session_state.get("active_provider_mode"):
-            st.session_state["active_provider_mode"] = active_mode
-            st.session_state["quotes"] = None
-            st.session_state["ranking_result"] = None
-            st.session_state["selected_quote"] = None
-            st.session_state["approval_given"] = False
-            st.session_state["approved_record"] = None
-            st.session_state["approved_proposal_sig"] = None
-            st.session_state["dispatch_result"] = None
-            st.rerun()
-
-        if active_mode == "demo":
-            st.warning(
-                "**DEMO DATA MODE**\n\nAll courier rates shown are "
-                "synthetic and produced by the Demo Shipping Adapter. "
-                "They are NOT live carrier prices.",
-                icon=None,
-            )
-            st.caption("Provider: Demo Multi-Courier Adapter (Simulated)")
-        else:
-            from src.providers.shipengine_adapter import (
-                get_shipengine_api_key,
-                mask_api_key,
-                validate_sandbox_key,
-                ShipEngineAdapter,
-            )
-            raw_key = get_shipengine_api_key()
-            is_valid_key, key_msg = validate_sandbox_key(raw_key)
-
-            st.info(
-                "**SHIPENGINE SANDBOX**\n\nCommunicating with official "
-                "ShipEngine Sandbox REST API (`https://api.shipengine.com`).",
-                icon=None,
-            )
-            st.caption(f"Configured Key: `{mask_api_key(raw_key)}`")
-
-            if st.button("Test Connection", key="btn_test_shipengine", use_container_width=True):
-                with st.spinner("Pinging ShipEngine Sandbox API (/v1/carriers)..."):
-                    se_adapter = ShipEngineAdapter(api_key=raw_key)
-                    res = se_adapter.test_connection()
-                    st.session_state["shipengine_connection_status"] = res
-
-            conn_res = st.session_state.get("shipengine_connection_status")
-            if conn_res:
-                if conn_res.get("connected"):
-                    st.success(f"[PASS]  Connected (HTTP {conn_res.get('status_code', 200)})")
-                    carrier_list = [
-                        c.get("friendly_name") or c.get("nickname") or c.get("carrier_code")
-                        for c in conn_res.get("carriers", [])
-                    ]
-                    if carrier_list:
-                        st.caption(f"Carriers: {', '.join(carrier_list)}")
-                else:
-                    st.error(f"[FAIL]  {conn_res.get('message')}")
-            elif not is_valid_key:
-                st.caption(f"[NOTICE]  {key_msg}")
+        st.caption("Provider: Demo Multi-Courier Adapter (Simulated)")
 
         st.divider()
         st.markdown("** Evaluator 1-Click Scenarios**")
@@ -998,14 +938,8 @@ def _render_ship_a_parcel_form():
 
             eligible = [q for q in quotes if q.is_eligible and q.cost_breakdown]
             if not eligible:
-                if provider_mode == "demo":
-                    st.error("[FAIL]  Delivery to this PIN code is currently unavailable. Please check the PIN code or try another supported destination.")
-                    st.caption("ℹ Demo Network Data: No couriers in the simulated network can service this parcel to destination PIN.")
-                else:
-                    unsvc_reasons = [q.unserviceable_reason for q in quotes if q.unserviceable_reason]
-                    reason_msg = unsvc_reasons[0] if unsvc_reasons else "ShipEngine Sandbox returned no eligible rates for this route and weight."
-                    st.error(f"[FAIL]  {reason_msg}")
-                    st.caption("ℹ ShipEngine Sandbox API: Zero eligible rates returned by connected carriers. No simulated fallback applied.")
+                st.error("[FAIL]  Delivery to this PIN code is currently unavailable. Please check the PIN code or try another supported destination.")
+                st.caption("ℹ Demo Network Data: No couriers in the simulated network can service this parcel to destination PIN.")
                 st.session_state["quotes"] = quotes
                 st.session_state["selected_quote"] = None
                 st.session_state["approval_given"] = False
@@ -1102,10 +1036,7 @@ def _render_ship_a_parcel_form():
             st.session_state["decision_trace"] = trace
 
         st.success(f"[PASS]  Found eligible courier options for **PIN {pickup_pin} -> PIN {delivery_pin}** via {provider.provider_name}.")
-        if provider_mode == "demo":
-            st.caption("ℹ Route serviceability verified against Demo Shipping Adapter simulated network data (Simulated Demo Data — not official carrier confirmation).")
-        else:
-            st.caption("ℹ Genuine rates and route confirmation retrieved directly from ShipEngine Sandbox REST API.")
+        st.caption("ℹ Route serviceability verified against Demo Shipping Adapter simulated network data (Simulated Demo Data — not official carrier confirmation).")
         st.session_state["wizard_step"] = 2
         st.rerun()
 
@@ -1540,7 +1471,7 @@ def _render_review_and_approve_section():
         with rc2:
             st.markdown(f"**Selected Courier:** **{selected_quote.courier_name}** ({selected_quote.service_type})")
             curr_str = getattr(selected_quote.cost_breakdown, "currency", "INR") if selected_quote.cost_breakdown else "INR"
-            rate_mode_badge = "*(ShipEngine Sandbox)*" if not getattr(selected_quote, "is_demo_data", True) else "*(Simulated Demo Rate)*"
+            rate_mode_badge = "*(Manual Sandbox Entry)*" if getattr(selected_quote, "source_type", "") == "MANUAL_SANDBOX" else "*(Simulated Demo Rate)*"
             st.markdown(f"**Total Shipping Cost:** **{fmt_inr(cost_val, currency=curr_str)}** {rate_mode_badge}")
             if order.is_cod:
                 st.markdown(f"**Payment:** :red[**Cash on Delivery (Collect ₹ {order.cod_amount:,.2f})**]")
@@ -1727,7 +1658,7 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
     st.success(" **Your shipment is ready**")
 
     is_demo = getattr(selected_quote, "is_demo_data", True)
-    awb_label = "AWB / Tracking (DEMO)" if is_demo else "AWB / Tracking (ShipEngine Sandbox)"
+    awb_label = "AWB / Tracking (DEMO)" if is_demo else "AWB / Tracking (Manual Sandbox)"
 
     dead_wt = getattr(order, "parcel_weight_kg", 1.0)
     billed_wt = None

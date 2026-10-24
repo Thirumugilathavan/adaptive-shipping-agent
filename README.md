@@ -16,7 +16,7 @@ E-commerce merchants and warehouse logistics managers face substantial margin le
 
 The **Adaptive Shipping Intelligence Agent** solves these challenges by combining:
 - **Autonomous 6-Orientation Packaging Optimization:** Evaluates 3D rotational fits against standard and user-defined custom boxes, calculating exact volumetric savings.
-- **Dual-Provider Architecture:** Pluggable switching between **Demo Multi-Courier Simulator** and **Genuine ShipEngine Sandbox API**.
+- **Local Multi-Courier Simulation & ML Intelligence:** 100% offline deterministic courier network with integrated Model 1 and Model 2 (CatBoost) machine-learning pricing and turnaround benchmarks.
 - **Explainable Multi-Stage Decision Engine:** Chronologically documents Observation, Constraint Evaluation, Deterministic Ranking, Human Gate Approval, Safe Execution, and Independent 5-Point Verification.
 - **Zero-Drift Safety & Reconciliation:** Enforces idempotency locks, validates timestamp currency (<15m), and blocks blind retries on uncertain dispatch timeouts.
 
@@ -46,32 +46,18 @@ To validate the agentic capability against conventional shipping calculators (wh
 
 ---
 
-## 3. Shipping Provider Modes: Demo vs. ShipEngine Sandbox
+## 3. Shipping Provider Modes: Local Simulation & Manual Sandbox Entry
 
-The application features a provider toggle in the sidebar:
+The application operates 100% locally and offline without external API dependencies:
 
-### Mode 1: Demo Simulator (Default)
+### Mode 1: Deterministic Multi-Courier Simulator (Default)
 - **Zero API credentials required:** 10 simulated couriers covering Air, Surface, Cargo, and Hyperlocal express delivery.
 - **Realistic fee breakdowns:** Base freight slabs, fuel surcharges, COD handling fees, and GST tax calculations.
 - **Evaluator Scenarios:** 10 one-click benchmark scenarios (`Demo A` through `Demo J`) and 4 official test cases (`TC1` through `TC4`).
 
-### Mode 2: ShipEngine Sandbox API
-- **Official REST Endpoints:** Direct communication with `https://api.shipengine.com/v1` for real live sandbox carrier rates (`POST /v1/rates`), test shipping labels (`POST /v1/labels/rates/{rate_id}`), and tracking queries (`GET /v1/tracking`).
-- **Strict Sandbox Credential Enforcement:** Only API keys prefixed with `TEST_` are accepted. Production/live credentials (`LIVE_`, `PROD_`, `sk_live_`) are immediately refused to prevent accidental charges.
-- **Secret Redaction:** API keys are never printed in logs, displayed in full in the UI, or written to SQLite tracebacks. Masked preview format: `TEST_••••••••xxxx`.
-- **Zero Silent Fallbacks:** If ShipEngine returns no rates or carrier errors for an unsupported route, the genuine carrier response is displayed directly without fabricating fake rates.
-
-#### Configuring ShipEngine Sandbox Credentials
-Set your ShipEngine test key via environment variable:
-```powershell
-$env:SHIPENGINE_API_KEY = "TEST_your_sandbox_api_key_here"
-```
-Or in `.streamlit/secrets.toml`:
-```toml
-shipengine_api_key = "TEST_your_sandbox_api_key_here"
-```
-
-Use the **🧪 Test Connection** button in the sidebar to verify your sandbox connection non-destructively (`GET /v1/carriers`).
+### Mode 2: Manual Sandbox Dashboard Entry
+- **Carrier Sandbox Verification:** Allows operators to manually enter verified rates and tracking numbers from carrier sandbox dashboards for real-world validation.
+- **Strict Offline Privacy:** No external HTTP calls, no telemetry, no credentials required, and zero network risk. All state and audit logs persist locally in SQLite.
 
 ---
 
@@ -138,8 +124,8 @@ pytest tests/
 # Run the dedicated Machine Learning Price Prediction tests
 pytest tests/test_price_prediction.py
 
-# Run the dedicated ShipEngine Sandbox adapter tests
-pytest tests/test_shipengine_adapter.py
+# Run the dedicated Model 2 Courier Intelligence tests
+pytest tests/test_model2_adapter.py
 
 # Run the Smart Personalized Shipping Advisor tests
 pytest tests/test_personalized_advisor.py
@@ -189,8 +175,7 @@ adaptive-shipping-agent/
 │   ├── providers/
 │   │   ├── base.py                # CourierProvider abstract base class
 │   │   ├── demo_adapter.py        # Simulated 10-courier provider with label generator
-│   │   ├── registry.py            # Provider registry & factory (Demo vs ShipEngine)
-│   │   └── shipengine_adapter.py  # Official ShipEngine Sandbox API integration
+│   │   └── registry.py            # Local provider registry (Demo adapter)
 │   └── ui/
 │       ├── app.py                 # Modern Streamlit logistics dashboard
 │       └── helpers.py             # UI formatting & form parsing pure functions
@@ -202,13 +187,14 @@ adaptive-shipping-agent/
 │   ├── test_freshness_and_reconciliation.py
 │   ├── test_label_generator.py
 │   ├── test_mandatory_dimensions.py
+│   ├── test_model2_adapter.py     # 10 tests: CatBoost rate, SLA & PIN coverage
 │   ├── test_official_scenarios.py
 │   ├── test_packaging.py
 │   ├── test_persistence.py
 │   ├── test_personalized_advisor.py # 18 tests: Smart Advisor, preferences & closest match
 │   ├── test_pricing.py
 │   ├── test_ranking.py
-│   ├── test_shipengine_adapter.py # 20 tests: ShipEngine Sandbox auth, rates, labels, tracking
+│   ├── test_serviceability_and_explanations.py # 10 tests: deterministic serviceability
 │   ├── test_simplified_ui_flow.py
 │   ├── test_stress_tester.py
 │   ├── test_ui_helpers.py

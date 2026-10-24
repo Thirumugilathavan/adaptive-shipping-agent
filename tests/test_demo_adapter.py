@@ -1,5 +1,5 @@
 """
-Unit tests for Provider Abstraction Layer, DemoShippingAdapter, and ShipSandboxClient.
+Unit tests for Provider Abstraction Layer and DemoShippingAdapter.
 Covers contract consistency, multi-courier pricing scenarios, bulky parcel handling,
 serviceability rejections, and locked endpoint safety guards.
 """
@@ -16,10 +16,6 @@ from src.persistence.state_machine import ApprovalRecord
 from src.providers.base import CourierProvider
 from src.providers.demo_adapter import DemoShippingAdapter
 from src.providers.registry import get_provider
-from src.providers.shipsandbox_client import (
-    ShipSandboxClient,
-    UnconfirmedEndpointError,
-)
 
 
 def create_sample_order(
@@ -228,50 +224,17 @@ def test_create_shipment_success_contract():
     assert result.is_demo_data is True
 
 
-def test_shipsandbox_locked_endpoints():
-    """All unconfirmed ShipSandbox endpoints must raise UnconfirmedEndpointError."""
-    client = ShipSandboxClient()
-    order = create_sample_order()
-    dummy_quote = DemoShippingAdapter().get_rates(order)[0]
-    dummy_approval = ApprovalRecord(approved_by="Admin", quote_id="Q", total_cost=100.0)
-
-    with pytest.raises(UnconfirmedEndpointError):
-        client.get_rates(order)
-
-    with pytest.raises(UnconfirmedEndpointError):
-        client.create_shipment(order, dummy_quote, dummy_approval, "IDEM")
-
-    with pytest.raises(UnconfirmedEndpointError):
-        client.download_label("SHP-123")
-
-    with pytest.raises(UnconfirmedEndpointError):
-        client.schedule_pickup("SHP-123")
-
-    with pytest.raises(UnconfirmedEndpointError):
-        client.verify_webhook(b"payload", "sig")
-
-    with pytest.raises(UnconfirmedEndpointError):
-        client.cancel_shipment("SHP-123")
-
-
-def test_shipsandbox_tracking_unreachable_safe_fallback():
-    """When ShipSandbox server is unreachable, get_tracking returns safe error model without fabricating data."""
-    client = ShipSandboxClient(base_url="http://127.0.0.1:59999", timeout_seconds=0.1)
-    tracking = client.get_tracking("TEST-TRK-001")
-
-    assert tracking.tracking_number == "TEST-TRK-001"
-    assert tracking.current_status == "UNREACHABLE"
-    assert len(tracking.missing_evidence) > 0
-    assert tracking.is_delivered is False
-
-
 def test_provider_registry():
-    """Verify registry loads appropriate providers and rejects unknown modes."""
+    """Verify registry loads DemoShippingAdapter and strictly rejects external or unknown provider modes."""
     demo_provider = get_provider("demo")
     assert isinstance(demo_provider, DemoShippingAdapter)
 
-    sandbox_provider = get_provider("shipsandbox")
-    assert isinstance(sandbox_provider, ShipSandboxClient)
+    # Obsolete or external provider modes must be rejected
+    with pytest.raises(ValueError, match="Unknown shipping provider mode"):
+        get_provider("shipengine")
+
+    with pytest.raises(ValueError, match="Unknown shipping provider mode"):
+        get_provider("shipsandbox")
 
     with pytest.raises(ValueError, match="Unknown shipping provider mode"):
         get_provider("unsupported_carrier_xyz")

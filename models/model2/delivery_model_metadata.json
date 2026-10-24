@@ -1,0 +1,17 @@
+{
+  "model_type": "CatBoostRegressor",
+  "target": "delivery_days",
+  "features": [
+    "pickup_pin",
+    "delivery_pin",
+    "weight_kg",
+    "length_cm",
+    "width_cm",
+    "height_cm",
+    "courier_name"
+  ],
+  "mae": 0.5387711099626755,
+  "rmse": 0.5738748763522864,
+  "model_origin": "retrained",
+  "trained_at": "2026-10-24T13:11:48.153872"
+}

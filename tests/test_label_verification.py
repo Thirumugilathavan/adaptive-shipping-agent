@@ -74,7 +74,7 @@ def test_supported_carrier_issued_label(ver_service, sample_order, sample_quote,
         courier_code=live_quote.courier_code,
         tracking_number="LIVE-TRK-987654321",
         label_status="AVAILABLE_PDF",
-        label_url_or_data=f"https://api.shipengine.com/labels/LIVE-TRK-987654321.pdf?ref={sample_order.order_reference}",
+        label_url_or_data=f"https://sandbox-dashboard.local/labels/LIVE-TRK-987654321.pdf?ref={sample_order.order_reference}",
         is_demo_data=False,
     )
 

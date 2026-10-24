@@ -96,6 +96,10 @@ from src.services.price_prediction_service import (
     PricePredictionServiceResponse,
     ShipmentPricePredictionService,
 )
+from src.domain.agent_tools import (
+    execute_check_pin_serviceability_tool,
+    execute_rank_and_explain_recommendations_tool,
+)
 from src.ui.helpers import (
     validate_pin_code,
     validate_positive_float,
@@ -166,7 +170,7 @@ class RateRequest(BaseModel):
     cod_amount: float = 0.0
 
     ranking_mode: str = "lowest_cost"  # lowest_cost, fastest, balanced
-    provider_mode: str = "demo"  # demo or shipengine
+    provider_mode: str = "demo"  # deterministic local simulation
     excluded_couriers: list[str] = Field(default_factory=list)
 
     max_budget: Optional[float] = None
@@ -204,7 +208,7 @@ def health_check() -> dict[str, Any]:
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "database": "connected",
-        "provider_modes": ["demo", "shipengine"],
+        "provider_modes": ["demo"],
     }
 
 
@@ -256,6 +260,7 @@ def load_scenario(scenario_id: str) -> dict[str, Any]:
     )
     advisor = build_advisor_recommendation(quotes, adv_prefs)
 
+    has_eligible = bool(ranking and ranking.selected_winner)
     return {
         "scenario_id": sc_id,
         "title": meta["title"],
@@ -263,7 +268,12 @@ def load_scenario(scenario_id: str) -> dict[str, Any]:
         "quotes": [q.model_dump() for q in quotes],
         "ranking": ranking.model_dump() if ranking else None,
         "advisor": advisor.model_dump() if advisor else None,
-        "selected_quote_id": ranking.selected_winner.quote.quote_id if ranking and ranking.selected_winner else None,
+        "selected_quote_id": ranking.selected_winner.quote.quote_id if has_eligible else None,
+        "has_eligible_couriers": has_eligible,
+        "comparison_table": getattr(ranking, "comparison_table", []),
+        "winner_reasons": getattr(ranking, "winner_reasons", []),
+        "trade_off_analysis": getattr(ranking, "trade_off_analysis", ""),
+        "loss_reasons": getattr(ranking, "loss_reasons", {}),
     }
 
 
@@ -343,6 +353,78 @@ def predict_shipment_price_endpoint(req: PricePredictionApiRequest) -> PricePred
                 error_message=pred.error_message,
             )
 
+        if req.model_type in ("model2_catboost", "courier_intelligence", "model2"):
+            from src.domain.model2_adapter import model2_adapter
+            raw_input = {
+                "origin_pin": req.origin_pin,
+                "dest_pin": req.destination_pin,
+                "length_cm": req.length_cm,
+                "width_cm": req.width_cm,
+                "height_cm": req.height_cm,
+                "parcel_weight_kg": req.parcel_weight_kg,
+                "courier_code": req.courier_code,
+            }
+            p_pred = model2_adapter.predict_price(raw_input)
+            d_pred = model2_adapter.predict_delivery_days(raw_input)
+            cov = model2_adapter.check_historical_pin_coverage(req.origin_pin, req.destination_pin, req.courier_code)
+
+            status_val = PredictionStatus.SUCCESS if p_pred.status == "SUCCESS" else PredictionStatus.MODEL_UNAVAILABLE
+
+            qc_dto = None
+            if req.quote_cost is not None and p_pred.predicted_price_inr is not None:
+                diff = round(req.quote_cost - p_pred.predicted_price_inr, 2)
+                pct = round((diff / p_pred.predicted_price_inr) * 100.0, 1) if p_pred.predicted_price_inr > 0 else 0.0
+                verdict = "FAVORABLE" if diff < 0 else "ACCEPTABLE" if abs(pct) <= 20 else "PREMIUM"
+                qc_dto = QuoteComparisonDto(
+                    courier_code=req.courier_code,
+                    courier_name=req.quote_courier_name or req.courier_code,
+                    provider_quote_cost=round(req.quote_cost, 2),
+                    model_predicted_price=p_pred.predicted_price_inr,
+                    currency="INR",
+                    difference_amount=diff,
+                    percentage_difference=pct,
+                    verdict=verdict,
+                    analysis=f"Quote vs Model 2 CatBoost historical rate (variance: {pct}%). Historical SLA estimate: {d_pred.rounded_days or 'N/A'} days.",
+                )
+
+            ci = (
+                (round(p_pred.predicted_price_inr - 43.34, 2), round(p_pred.predicted_price_inr + 43.34, 2))
+                if p_pred.predicted_price_inr is not None
+                else None
+            )
+            sla_text = f" Estimated SLA: {d_pred.rounded_days} days." if d_pred.rounded_days else ""
+            cov_text = f" Historical synthetic PIN coverage: {cov.status}."
+
+            return PricePredictionApiResponse(
+                predicted_price=p_pred.predicted_price_inr,
+                currency="INR",
+                model_name=p_pred.model_name,
+                model_version=p_pred.model_version,
+                feature_schema_version="2.0.0",
+                status=status_val,
+                is_provider_quote=False,
+                confidence_interval=ci,
+                input_summary={
+                    "pickup_pin": req.origin_pin,
+                    "delivery_pin": req.destination_pin,
+                    "weight_kg": req.parcel_weight_kg,
+                    "length_cm": req.length_cm,
+                    "width_cm": req.width_cm,
+                    "height_cm": req.height_cm,
+                    "courier_code": req.courier_code,
+                },
+                limitations=[
+                    "CatBoost regression trained on 14 million synthetic Indian courier shipment rows.",
+                    "SLA turnaround estimate trained on 2 million records.",
+                    "Carrier binding quotes strictly govern actual booking and billing.",
+                ],
+                explanation=f"Model 2 CatBoost prediction based on route ({req.origin_pin} -> {req.destination_pin}) and dimensional slab.{sla_text}{cov_text}",
+                quote_comparison=qc_dto,
+                agent_advice=f"Model 2 historical pricing benchmark evaluated.{sla_text} Carrier quote governs booking.",
+                recommended_action="Validate binding rate against Model 2 benchmark before dispatch approval.",
+                error_message=p_pred.error_message,
+            )
+
         # Domestic courier model (default)
         features = DomesticCourierFeatures(
             origin_pin=req.origin_pin,
@@ -404,18 +486,76 @@ def predict_shipment_price_endpoint(req: PricePredictionApiRequest) -> PricePred
         raise HTTPException(status_code=400, detail=f"Price prediction error: {str(exc)}")
 
 
+@app.post("/api/v1/model2/predict")
+def model2_predict_endpoint(req: PricePredictionApiRequest) -> dict[str, Any]:
+    """
+    Dedicated Model 2 Courier Intelligence Endpoint.
+    Returns CatBoost rate estimate, SLA transit turnaround estimate, and PIN coverage evidence.
+    """
+    from src.domain.model2_adapter import model2_adapter
+
+    raw_input = {
+        "origin_pin": req.origin_pin,
+        "dest_pin": req.destination_pin,
+        "length_cm": req.length_cm,
+        "width_cm": req.width_cm,
+        "height_cm": req.height_cm,
+        "parcel_weight_kg": req.parcel_weight_kg,
+        "courier_code": req.courier_code,
+    }
+    p_pred = model2_adapter.predict_price(raw_input)
+    d_pred = model2_adapter.predict_delivery_days(raw_input)
+    cov = model2_adapter.check_historical_pin_coverage(req.origin_pin, req.destination_pin, req.courier_code)
+
+    return {
+        "status": p_pred.status,
+        "price_prediction": p_pred.model_dump(),
+        "rate_prediction": p_pred.model_dump(),
+        "delivery_prediction": d_pred.model_dump(),
+        "pin_coverage": cov.model_dump(),
+        "is_catboost_available": model2_adapter.is_catboost_available(),
+        "disclaimer": "Model 2 estimates are non-binding. Binding carrier quotes govern actual booking.",
+    }
+
+
+class ServiceabilityCheckRequest(BaseModel):
+    origin_pin: str
+    destination_pin: str
+    courier_codes: Optional[list[str]] = None
+
+
+@app.post("/api/serviceability")
+def check_serviceability_endpoint(req: ServiceabilityCheckRequest) -> dict[str, Any]:
+    """
+    Deterministic local PIN serviceability evaluation endpoint.
+    Validates origin and destination PIN formats and evaluates carrier rules.
+    """
+    return execute_check_pin_serviceability_tool({
+        "origin_pin": req.origin_pin,
+        "destination_pin": req.destination_pin,
+        "courier_codes": req.courier_codes,
+    })
+
+
 @app.post("/api/rates")
 def calculate_rates(req: RateRequest) -> dict[str, Any]:
     """
     Validate inputs, calculate volumetric and billable weights,
     query couriers, rank options, and generate advisor recommendations.
     """
-    # 1. Validation
+    # 1. Validation & Serviceability
     is_valid_m, field_errs, err_list = validate_shipment_measurements(
         req.length_cm, req.width_cm, req.height_cm, req.parcel_weight_kg
     )
     if not is_valid_m:
         raise HTTPException(status_code=422, detail={"field_errors": field_errs, "errors": err_list})
+
+    svc_tool_res = execute_check_pin_serviceability_tool({
+        "origin_pin": req.sender_pin,
+        "destination_pin": req.recipient_pin,
+    })
+    if svc_tool_res.get("classification") == "INVALID_FORMAT":
+        raise HTTPException(status_code=422, detail={"errors": [svc_tool_res.get("message")]})
 
     ok_p, err_p = validate_pin_code(req.sender_pin, pin_type="pickup")
     ok_d, err_d = validate_pin_code(req.recipient_pin, pin_type="delivery")
@@ -511,6 +651,8 @@ def calculate_rates(req: RateRequest) -> dict[str, Any]:
     ) if custom_pkgs else []
 
     vol_div_5000 = (req.length_cm * req.width_cm * req.height_cm) / 5000.0
+    has_eligible = bool(ranking and ranking.selected_winner)
+    selected_id = ranking.selected_winner.quote.quote_id if has_eligible else None
 
     return {
         "order": order.model_dump(),
@@ -521,7 +663,13 @@ def calculate_rates(req: RateRequest) -> dict[str, Any]:
         "ranking": ranking.model_dump() if ranking else None,
         "advisor": advisor.model_dump() if advisor else None,
         "packaging_analysis": [a.model_dump() for a in pkg_analysis] if pkg_analysis else [],
-        "selected_quote_id": ranking.selected_winner.quote.quote_id if ranking and ranking.selected_winner else None,
+        "selected_quote_id": selected_id,
+        "has_eligible_couriers": has_eligible,
+        "serviceability_report": svc_tool_res,
+        "comparison_table": getattr(ranking, "comparison_table", []),
+        "winner_reasons": getattr(ranking, "winner_reasons", []),
+        "trade_off_analysis": getattr(ranking, "trade_off_analysis", ""),
+        "loss_reasons": getattr(ranking, "loss_reasons", {}),
     }
 
 
@@ -564,6 +712,14 @@ def approve_and_dispatch(payload: ApprovalDispatchPayload) -> dict[str, Any]:
             quote = CourierQuote(**q_data)
         else:
             raise HTTPException(status_code=404, detail=f"Quote '{payload.quote_id}' not found.")
+
+    # Strict check: Block unserviceable or ineligible couriers from human approval and dispatch
+    if not quote.is_serviceable or not quote.is_eligible or quote.cost_breakdown is None:
+        reason = quote.unserviceable_reason or "; ".join(quote.eligibility_reasons or []) or "Courier quote is unserviceable or ineligible."
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot approve or dispatch an unserviceable or ineligible courier quote: {reason}",
+        )
 
     provider = get_provider(payload.provider_mode)
 

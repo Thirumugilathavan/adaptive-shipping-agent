@@ -305,16 +305,16 @@ def test_missing_sla_not_treated_as_confirmed_deadline_match():
 
 def test_data_verification_labelling():
     q_demo = _make_dummy_quote("Q_DEMO", "demo", "Demo Courier", 100.0, days=2, is_demo=True, source_type="DEMO")
-    q_se = _make_dummy_quote("Q_SE", "se", "ShipEngine Courier", 120.0, days=2, is_demo=False, source_type="SHIPENGINE_SANDBOX")
+    q_manual = _make_dummy_quote("Q_MANUAL", "manual", "Manual Sandbox Courier", 120.0, days=2, is_demo=False, source_type="MANUAL_SANDBOX")
 
     prefs = UserShippingPreferences.create(max_budget=None, is_flexible_budget=True, deadline_choice="Flexible delivery time")
-    res = build_advisor_recommendation([q_demo, q_se], prefs)
+    res = build_advisor_recommendation([q_demo, q_manual], prefs)
 
     comp_demo = [c for c in res.all_evaluated if c.courier_code == "demo"][0]
-    comp_se = [c for c in res.all_evaluated if c.courier_code == "se"][0]
+    comp_manual = [c for c in res.all_evaluated if c.courier_code == "manual"][0]
 
     assert "Simulated Demo Data" in comp_demo.data_verification_text
-    assert "ShipEngine Sandbox API" in comp_se.data_verification_text
+    assert "Manual Sandbox Entry" in comp_manual.data_verification_text
 
 
 # ---------------------------------------------------------------------------

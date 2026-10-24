@@ -302,7 +302,7 @@ class ShipmentDispatchService:
         try:
             existing_shipment = provider.lookup_shipment_by_reference(order_reference)
         except Exception as exc:
-            # Provider does not support lookup or lookup failed (e.g. unconfirmed ShipSandbox)
+            # Provider does not support lookup or lookup failed
             self.audit.record_event(
                 event_type=AuditEventType.DISPATCH_UNCERTAIN,
                 actor=provider.provider_code,

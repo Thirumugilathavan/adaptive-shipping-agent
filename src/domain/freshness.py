@@ -191,7 +191,7 @@ def verify_and_refresh_quote(
             )
         new_quote = matching[0]
     except Exception as exc:
-        # Refresh endpoint unavailable or provider error (e.g. unconfirmed ShipSandbox rates)
+        # Refresh endpoint unavailable or provider error (e.g. unconfirmed manual rate)
         return QuoteRefreshResult(
             original_quote=quote,
             refreshed_quote=None,

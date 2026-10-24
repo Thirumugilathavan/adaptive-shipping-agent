@@ -238,12 +238,12 @@ def evaluate_quote_compliance(
     score = round(max(0.0, 100.0 - composite_penalty), 2)
 
     # 5. Verification text
-    if quote.source_type == "SHIPENGINE_SANDBOX":
-        ver_text = "🟢 ShipEngine Sandbox API: Genuine test rate returned by carrier via ShipEngine Sandbox."
+    if quote.source_type in ("MANUAL_SANDBOX", "SHIPSANDBOX"):
+        ver_text = "🔒 Manual Sandbox Entry: Verified rate entered manually via carrier dashboard."
     elif quote.is_demo_data:
         ver_text = "🔵 Simulated Demo Data: Synthetic carrier rate produced by Demo Shipping Adapter (not live carrier quote)."
     else:
-        ver_text = "🟢 Live Quote: Verified rate from live carrier connection."
+        ver_text = "⚙️ Deterministic Pricing Engine: Computed using courier weight-break rules."
 
     return CourierPreferenceCompliance(
         quote=quote,
@@ -300,8 +300,14 @@ def build_advisor_recommendation(
     Main entry point: Evaluates all quotes against preferences, determines exact
     vs fallback closest match, generates plain-language comparisons and trade-offs.
     """
-    serviceable_quotes = [q for q in quotes if q.is_serviceable and q.cost_breakdown is not None]
-    unserviceable_quotes = [q for q in quotes if not q.is_serviceable or q.cost_breakdown is None]
+    serviceable_quotes = [
+        q for q in quotes
+        if q.is_serviceable and getattr(q, "is_eligible", True) and q.cost_breakdown is not None
+    ]
+    unserviceable_quotes = [
+        q for q in quotes
+        if not q.is_serviceable or not getattr(q, "is_eligible", True) or q.cost_breakdown is None
+    ]
 
     if not serviceable_quotes:
         return AdvisorRecommendationResult(
@@ -309,9 +315,12 @@ def build_advisor_recommendation(
             has_serviceable_couriers=False,
             is_exact_match=False,
             primary_recommendation=None,
+            best_compromise=None,
+            lowest_cost_alternative=None,
+            fastest_alternative=None,
             unserviceable=quotes,
-            headline="No verified serviceable courier is available for this route.",
-            summary_explanation="None of the evaluated couriers can service this destination PIN or package configuration.",
+            headline="No verified serviceable courier is available for this route or package.",
+            summary_explanation="None of the evaluated couriers can service this destination PIN or satisfy the active package/budget constraints. No courier can be recommended.",
             suggested_actions=["Verify pickup and destination PIN codes", "Try reducing parcel dimensions or weight"],
         )
 

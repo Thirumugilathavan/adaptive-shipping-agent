@@ -8,7 +8,7 @@ Executes Phase 1, Phase 2, Phase 3, Phase 4, and Phase 5:
 - Distinctive Innovation: Recommendation Fragility Analysis
 - Quote Freshness & Price Drift Verification Gate
 - Timeout Reconciliation Workflow (CREATION_UNCERTAIN recovery & safe retry)
-- ShipSandboxClient safety locks on unconfirmed endpoints
+- Local DemoShippingAdapter with deterministic multi-courier network
 - SQLite persistence, Human Approval Guard, Idempotency lock, and Secret Scrubbing
 """
 
@@ -47,7 +47,6 @@ from src.persistence.idempotency import IdempotencyManager, generate_idempotency
 from src.persistence.state_machine import ApprovalRecord, HumanApprovalRequiredError, ShipmentStateMachine, ShipmentStatus
 from src.providers.demo_adapter import DemoShippingAdapter
 from src.providers.registry import get_provider
-from src.providers.shipsandbox_client import ShipSandboxClient, UnconfirmedEndpointError
 
 
 def print_banner(text: str) -> None:

@@ -42,7 +42,12 @@ from src.domain.reconciliation import ShipmentDispatchService, ReconciliationRes
 from src.domain.verification import ShipmentVerificationService, VerificationReport, VerificationStatus
 from src.persistence.state_machine import ApprovalRecord
 from src.providers.base import CourierProvider, ShipmentResult, PickupResult
-from src.domain.agent_tools import execute_predict_shipment_price_tool
+from src.domain.agent_tools import (
+    execute_predict_shipment_price_tool,
+    execute_validate_inputs_tool,
+    execute_check_pin_serviceability_tool,
+    execute_rank_and_explain_recommendations_tool,
+)
 
 
 class DecisionTraceStatus(str, Enum):
@@ -274,20 +279,41 @@ class AgentDecisionEngine:
         return AgentDecisionTrace(order_reference=order_reference)
 
     def run_observe(self, order: OrderInput, trace: Optional[AgentDecisionTrace] = None) -> AgentDecisionTrace:
-        """Stage A: Observe inputs, dimensions, route, and check for missing/unreliable info."""
+        """Stage A: Observe inputs, dimensions, route, and check for missing/unreliable info using agent tools."""
         if trace is None:
             trace = AgentDecisionTrace(order_reference=order.order_reference)
 
-        missing = []
         sender_pin = getattr(order.sender, "pin_code", None) or getattr(order.sender, "pincode", None)
         recipient_pin = getattr(order.recipient, "pin_code", None) or getattr(order.recipient, "pincode", None)
 
+        # 1. Consume results from validate_shipment_inputs tool
+        val_res = execute_validate_inputs_tool({
+            "length_cm": order.dimensions.length_cm,
+            "width_cm": order.dimensions.width_cm,
+            "height_cm": order.dimensions.height_cm,
+            "parcel_weight_kg": order.parcel_weight_kg,
+            "sender_pin": str(sender_pin or ""),
+            "recipient_pin": str(recipient_pin or ""),
+            "is_cod": order.is_cod,
+            "cod_amount": order.cod_amount,
+        })
+
+        # 2. Consume results from check_pin_serviceability tool
+        svc_res = execute_check_pin_serviceability_tool({
+            "origin_pin": str(sender_pin or ""),
+            "destination_pin": str(recipient_pin or ""),
+        })
+
+        missing = []
         if not sender_pin or len(str(sender_pin)) != 6:
             missing.append("Valid 6-digit sender PIN")
         if not recipient_pin or len(str(recipient_pin)) != 6:
             missing.append("Valid 6-digit recipient PIN")
         if order.parcel_weight_kg <= 0:
             missing.append("Positive parcel weight")
+
+        if not svc_res.get("is_serviceable"):
+            missing.append(svc_res.get("message", "Route unserviceable."))
 
         status = DecisionTraceStatus.VERIFIED if not missing else DecisionTraceStatus.UNRESOLVED
         summary = (
@@ -306,6 +332,8 @@ class AgentDecisionEngine:
             "is_cod": order.is_cod,
             "cod_amount": order.cod_amount,
             "missing_items": missing,
+            "validation_tool_result": val_res,
+            "serviceability_tool_result": svc_res,
         }
 
         trace.add_step(
@@ -509,6 +537,10 @@ class AgentDecisionEngine:
                     "margin_over_runner_up": ranking_result.cost_margin_over_runner_up,
                     "total_eligible": ranking_result.total_eligible,
                     "total_ineligible": ranking_result.total_ineligible,
+                    "winner_reasons": ranking_result.winner_reasons,
+                    "trade_off_analysis": ranking_result.trade_off_analysis,
+                    "loss_reasons": ranking_result.loss_reasons,
+                    "comparison_table": ranking_result.comparison_table,
                 },
                 explanation=explanation,
             )
@@ -525,6 +557,8 @@ class AgentDecisionEngine:
                     "total_eligible": 0,
                     "total_ineligible": len(ranking_result.ineligible_candidates),
                     "rejection_summary": [f"{c.courier_name}: {'; '.join(c.rejection_reasons)}" for c in ranking_result.ineligible_candidates],
+                    "comparison_table": ranking_result.comparison_table,
+                    "loss_reasons": ranking_result.loss_reasons,
                 },
                 explanation="Agent safely halted automatic recommendation to prevent unsafe booking. Operator intervention requested.",
             )

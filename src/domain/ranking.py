@@ -70,6 +70,10 @@ class RankingResult(BaseModel):
     total_eligible: int = 0
     total_ineligible: int = 0
     has_demo_data: bool = True
+    winner_reasons: list[str] = Field(default_factory=list)
+    trade_off_analysis: str = ""
+    loss_reasons: dict[str, list[str]] = Field(default_factory=dict)
+    comparison_table: list[dict[str, Any]] = Field(default_factory=list)
     disclaimer: str = (
         "RANKING DISCLOSURE: Evaluated based on provided constraints and active provider quotes. "
         "Demo quotes are simulated and cannot be used for commercial fulfillment."
@@ -90,6 +94,13 @@ def filter_quote_eligibility(
     # 1. Base Serviceability Check
     if not quote.is_serviceable:
         reasons.append(quote.unserviceable_reason or "Courier reported route is not serviceable.")
+
+    # 1b. Courier Eligibility Status Check
+    if hasattr(quote, "is_eligible") and quote.is_eligible is False:
+        el_reasons = getattr(quote, "eligibility_reasons", []) or []
+        for r in el_reasons:
+            if r not in reasons:
+                reasons.append(r)
 
     # 2. Landed Cost Check - Missing cost cannot be treated as zero
     if quote.cost_breakdown is None:
@@ -155,6 +166,30 @@ def rank_couriers(
             f"No couriers are eligible under the requested {mode_label} strategy and constraints. "
             f"{len(ineligible_list)} couriers were evaluated and excluded due to serviceability or constraint violations."
         )
+        comp_table: list[dict[str, Any]] = []
+        l_reasons: dict[str, list[str]] = {}
+        for inel in ineligible_list:
+            l_reasons[inel.courier_code] = inel.rejection_reasons
+            comp_table.append({
+                "quote_id": inel.quote_id,
+                "courier_code": inel.courier_code,
+                "courier_name": inel.courier_name,
+                "service_type": inel.service_type,
+                "is_serviceable": inel.is_serviceable,
+                "is_eligible": False,
+                "serviceability_status": "Serviceable" if inel.is_serviceable else f"Unserviceable ({inel.rejection_reasons[0] if inel.rejection_reasons else 'Blocked'})",
+                "billable_weight_kg": None,
+                "volumetric_divisor": None,
+                "base_freight": None,
+                "fuel_surcharge": None,
+                "cod_fee": None,
+                "tax_amount": None,
+                "total_cost": None,
+                "estimated_delivery_days": None,
+                "is_winner": False,
+                "outcome_status": "EXCLUDED",
+                "reason_summary": "; ".join(inel.rejection_reasons),
+            })
         return RankingResult(
             mode=prefs.mode,
             preferences=prefs,
@@ -167,6 +202,10 @@ def rank_couriers(
             total_eligible=0,
             total_ineligible=len(ineligible_list),
             has_demo_data=any(q.is_demo_data for q in quotes),
+            winner_reasons=[],
+            trade_off_analysis="No eligible couriers available for trade-off evaluation.",
+            loss_reasons=l_reasons,
+            comparison_table=comp_table,
         )
 
     # Calculate min and max for normalization in Balanced mode
@@ -280,6 +319,119 @@ def rank_couriers(
             f"Landed cost: ₹{winner.total_cost:.2f}, SLA: {winner.estimated_delivery_days} days."
         )
 
+    # Identify cheapest and fastest among eligible candidates for trade-off narrative
+    cheapest_cand = min(ranked_quotes, key=lambda c: (c.total_cost, c.estimated_delivery_days))
+    fastest_cand = min(ranked_quotes, key=lambda c: (c.estimated_delivery_days, c.total_cost))
+
+    trade_off_text = ""
+    if cheapest_cand.quote.courier_code != fastest_cand.quote.courier_code:
+        diff_price = round(fastest_cand.total_cost - cheapest_cand.total_cost, 2)
+        diff_sla = cheapest_cand.estimated_delivery_days - fastest_cand.estimated_delivery_days
+        trade_off_text = (
+            f"Trade-off: Choosing {cheapest_cand.quote.courier_name} saves ₹{diff_price:.2f} "
+            f"but takes {diff_sla} additional business day(s) vs {fastest_cand.quote.courier_name} "
+            f"({cheapest_cand.estimated_delivery_days} days vs {fastest_cand.estimated_delivery_days} days)."
+        )
+    elif len(ranked_quotes) == 1:
+        trade_off_text = f"Only one courier ({winner.quote.courier_name}) satisfies all constraints on this route."
+    else:
+        trade_off_text = f"{cheapest_cand.quote.courier_name} provides both the lowest shipping cost and fastest delivery SLA."
+
+    # Winner reasons
+    winner_reasons: list[str] = []
+    if prefs.mode == RankingMode.LOWEST_COST:
+        winner_reasons.append(f"Lowest total landed shipping cost (₹{winner.total_cost:.2f}).")
+        if cost_margin:
+            winner_reasons.append(f"Saves ₹{cost_margin:.2f} compared to runner-up {runner_up.quote.courier_name}.")
+    elif prefs.mode == RankingMode.FASTEST_DELIVERY:
+        winner_reasons.append(f"Fastest transit delivery SLA ({winner.estimated_delivery_days} business days).")
+        if days_margin:
+            winner_reasons.append(f"Delivers {abs(days_margin)} days faster than runner-up {runner_up.quote.courier_name}.")
+    else:
+        winner_reasons.append(f"Optimal balanced score ({winner.balanced_score:.1f}/100) combining price and delivery speed.")
+
+    winner_reasons.append("Verified 100% route serviceability, dimensional fit, and weight compliance.")
+
+    # Build per-courier loss reasons & comprehensive comparison table
+    loss_reasons: dict[str, list[str]] = {}
+    comparison_table: list[dict[str, Any]] = []
+
+    # 1. Eligible couriers
+    for cand in ranked_quotes:
+        q = cand.quote
+        is_w = (cand.rank == 1)
+        r_list: list[str] = []
+
+        if is_w:
+            summary_r = "Recommended winning courier."
+        else:
+            c_diff = round(cand.total_cost - winner.total_cost, 2)
+            if c_diff > 0:
+                pct = round((c_diff / winner.total_cost) * 100.0, 1)
+                r_list.append(f"Landed cost is ₹{c_diff:.2f} higher (+{pct}%) than recommended {winner.quote.courier_name}.")
+            elif c_diff < 0:
+                r_list.append(f"Cheaper by ₹{abs(c_diff):.2f}, but deprioritized under {prefs.mode.value} policy.")
+
+            d_diff = cand.estimated_delivery_days - winner.estimated_delivery_days
+            if d_diff > 0:
+                r_list.append(f"Takes {d_diff} additional business day(s) vs {winner.quote.courier_name}.")
+            elif d_diff < 0:
+                r_list.append(f"Delivers {abs(d_diff)} day(s) faster, but cost was higher.")
+
+            if prefs.max_budget and cand.total_cost > prefs.max_budget:
+                r_list.append(f"Exceeds preferred budget limit of ₹{prefs.max_budget:.2f}.")
+
+            if prefs.max_delivery_days and cand.estimated_delivery_days > prefs.max_delivery_days:
+                r_list.append(f"Exceeds preferred delivery deadline of {prefs.max_delivery_days} days.")
+
+            summary_r = "; ".join(r_list) if r_list else "Eligible alternative option."
+
+        loss_reasons[q.courier_code] = r_list
+        comparison_table.append({
+            "quote_id": q.quote_id,
+            "courier_code": q.courier_code,
+            "courier_name": q.courier_name,
+            "service_type": q.service_type,
+            "is_serviceable": True,
+            "is_eligible": True,
+            "serviceability_status": "Serviceable",
+            "billable_weight_kg": cand.chargeable_weight_kg,
+            "volumetric_divisor": getattr(q.weight_result, "divisor_used", None) if q.weight_result else None,
+            "base_freight": q.cost_breakdown.base_freight if q.cost_breakdown else None,
+            "fuel_surcharge": q.cost_breakdown.fuel_surcharge if q.cost_breakdown else None,
+            "cod_fee": q.cost_breakdown.cod_fee if q.cost_breakdown else None,
+            "tax_amount": q.cost_breakdown.tax_amount if q.cost_breakdown else None,
+            "total_cost": cand.total_cost,
+            "estimated_delivery_days": cand.estimated_delivery_days,
+            "is_winner": is_w,
+            "outcome_status": "WINNER" if is_w else "ELIGIBLE_ALTERNATIVE",
+            "reason_summary": summary_r,
+        })
+
+    # 2. Ineligible couriers
+    for inel in ineligible_list:
+        loss_reasons[inel.courier_code] = inel.rejection_reasons
+        comparison_table.append({
+            "quote_id": inel.quote_id,
+            "courier_code": inel.courier_code,
+            "courier_name": inel.courier_name,
+            "service_type": inel.service_type,
+            "is_serviceable": inel.is_serviceable,
+            "is_eligible": False,
+            "serviceability_status": "Serviceable" if inel.is_serviceable else f"Unserviceable ({inel.rejection_reasons[0] if inel.rejection_reasons else 'Blocked'})",
+            "billable_weight_kg": None,
+            "volumetric_divisor": None,
+            "base_freight": None,
+            "fuel_surcharge": None,
+            "cod_fee": None,
+            "tax_amount": None,
+            "total_cost": None,
+            "estimated_delivery_days": None,
+            "is_winner": False,
+            "outcome_status": "EXCLUDED",
+            "reason_summary": "; ".join(inel.rejection_reasons),
+        })
+
     return RankingResult(
         mode=prefs.mode,
         preferences=prefs,
@@ -292,4 +444,8 @@ def rank_couriers(
         total_eligible=len(ranked_quotes),
         total_ineligible=len(ineligible_list),
         has_demo_data=any(q.is_demo_data for q in quotes),
+        winner_reasons=winner_reasons,
+        trade_off_analysis=trade_off_text,
+        loss_reasons=loss_reasons,
+        comparison_table=comparison_table,
     )
