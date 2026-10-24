@@ -1,8 +1,8 @@
 # Adaptive Shipping Intelligence Agent
 > **Autonomous, Constraint-Aware Logistics Decision Support & Execution Gate Engine**  
 > *Category:* Business & Productivity AI — ZiroDigital Agentic AI Hackathon 2026  
-> *Live Entrypoint:* `python -m streamlit run src/ui/app.py`  
-> *Test Suite:* `python -m pytest tests/` (268/269 Passing, 1 opt-in live test skipped) | `python run_official_scenarios.py` (4/4 Passing)
+> *Live Entrypoint:* `python app.py` (FastAPI backend + Modern HTML/CSS/JS frontend on `http://localhost:8000`)  
+> *Test Suite:* `pytest tests/` (318/319 Passing, 1 opt-in live test skipped) | `python run_official_scenarios.py` (4/4 Passing)
 
 ---
 
@@ -102,40 +102,41 @@ The agent replaces generic "lowest price" tables with an interactive, constraint
 
 ---
 
-## 5. Evaluator Quick-Start & 1-Click Demo Scenarios
+## 5. Evaluator Quick-Start & Interactive Web Application
 
 ### Launch the Application
 ```powershell
 # 1. Open PowerShell in project directory
 cd "E:\adaptive shipping agent"
 
-# 2. Launch the modern Streamlit web dashboard
-python -m streamlit run src/ui/app.py
+# 2. Launch the FastAPI server and HTML/CSS/JS frontend
+python app.py
 ```
-*The web interface will open automatically at `http://localhost:8501`.*
+*The web interface will open automatically at `http://localhost:8000`.*
 
-### Sidebar 1-Click Demo Scenarios (Designed for Judges)
-The sidebar contains ten pre-configured demonstration scenarios:
-1. **🎯 Demo A: Standard Balanced Parcel** (25×20×15 cm, 1.8 kg, COD ₹1,200).
-2. **🎯 Demo B: Oversized Elongated Item** (110×20×15 cm — auto-suggests custom 110cm box and filters length-limited couriers).
-3. **🎯 Demo C: Cheapest Option Rejected** (Re-choice workflow).
-4. **🎯 Demo D: Ambiguous Booking & Reconciliation** (Network drop timeout & idempotency lock).
-5. **🎯 Demo E (TC1): Same Parcel on 3 Couriers** (Ranked by lowest total cost).
-6. **🎯 Demo F (TC2): Large, Light Box** (Volumetric weight penalty with distinct divisors 5000/4500/4000).
-7. **🎯 Demo G (TC3): Destination PIN Not Serviceable** (Courier safely excluded with explicit audit reason).
-8. **🎯 Demo H (TC4): Label Created & AWB Verification** (5-point verification with printable PDF label).
-9. **🎯 Demo I: Mandatory Measurements & COD Validation**.
-10. **🎯 Demo J: No Eligible Couriers & Safe Failure Mode**.
+### Application Workflow Features
+1. **Multi-Window 4-Step Shipping Wizard**:
+   - **Step 1: Dimensions & Intake**: Origin/Destination PIN validation, dead weight, and 3D parcel dimensions.
+   - **Step 2: Rates & ML Benchmark**: Deterministic courier rate comparison, 6-orientation box packaging recommendations, and statistical ML rate intelligence.
+   - **Step 3: Approval Gate & Review**: Mandatory human confirmation gate with complete fee breakdowns and audit traces.
+   - **Step 4: Dispatch & Label**: Real-time idempotency locking, instant PDF label generation, and 5-point verification.
+2. **Dual-Model ML Intelligence**:
+   - **Model 1 (Integrated)**: Domestic Courier Price Prediction model providing a non-binding statistical market baseline in INR, 90% confidence intervals, and quote discount/premium variance badges.
+   - **Model 2 (Specification)**: CatBoost 500-tree regression model architecture (see `docs/MODEL2_INTEGRATION_SPEC.md`).
+3. **Professional Dark Blue & White Theme**: Clean, high-contrast, accessible corporate design with zero emojis.
 
 ---
 
-## 5. Verification & Test Suite
+## 6. Verification & Test Suite
 
-The test suite covers unit logic, provider adapters, state machines, packaging fit, idempotency, and official scenarios:
+The test suite covers unit logic, provider adapters, state machines, packaging fit, idempotency, ML prediction, and official scenarios:
 
 ```powershell
-# Run the complete test suite (250 tests)
+# Run the complete test suite (319 tests: 318 passed, 1 skipped)
 pytest tests/
+
+# Run the dedicated Machine Learning Price Prediction tests
+pytest tests/test_price_prediction.py
 
 # Run the dedicated ShipEngine Sandbox adapter tests
 pytest tests/test_shipengine_adapter.py
