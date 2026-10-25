@@ -165,6 +165,10 @@ const elements = {
   mlPredictionCard: document.getElementById('mlPredictionCard'),
   mlModelSelect: document.getElementById('mlModelSelect'),
   mlPredictedPrice: document.getElementById('mlPredictedPrice'),
+  mlSelectedCourierPrice: document.getElementById('mlSelectedCourierPrice'),
+  mlSelectedCourierName: document.getElementById('mlSelectedCourierName'),
+  mlStatusBadge: document.getElementById('mlStatusBadge'),
+  mlBenchmarkExplanation: document.getElementById('mlBenchmarkExplanation'),
   mlConfidenceInterval: document.getElementById('mlConfidenceInterval'),
   mlVarianceBadge: document.getElementById('mlVarianceBadge'),
   mlVarianceDesc: document.getElementById('mlVarianceDesc'),
@@ -580,7 +584,7 @@ function renderRateResults(data) {
             <div class="courier-name-row">
               <span class="courier-name">${quote.courier_name}</span>
               ${isWinner ? '<span class="badge-recommendation">Recommended Winner</span>' : ''}
-              ${quote.source_type === 'LOCAL_SANDBOX' ? '<span class="badge-demo-flag" style="font-size:10px; padding:1px 6px; background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">LOCAL SANDBOX</span>' : (quote.source_type === 'MANUAL_SANDBOX' ? '<span class="badge-demo-flag" style="font-size:10px; padding:1px 6px; background:#fef3c7; color:#92400e; border-color:#fde68a;">MANUAL ENTRY — NOT API VERIFIED</span>' : '<span class="badge-demo-flag" style="font-size:10px; padding:1px 6px;">DEMO DATA</span>')}
+              ${quote.source_type === 'LOCAL_SANDBOX' ? '<span class="badge-demo-flag" style="font-size:10px; padding:1px 6px; background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">LOCAL SANDBOX</span>' : (quote.source_type === 'MANUAL_SANDBOX' ? '<span class="badge-demo-flag" style="font-size:10px; padding:1px 6px; background:#fef3c7; color:#92400e; border-color:#fde68a;">MANUAL ENTRY — NOT API VERIFIED</span>' : '<span class="badge-demo-flag" style="font-size:10px; padding:1px 6px;">SIMULATED</span>')}
               <span class="courier-mode-badge">${quote.service_type}</span>
             </div>
             <div class="courier-meta">
@@ -1366,7 +1370,7 @@ function setupProviderControls() {
       e.preventDefault();
       const orderRef = state.activeOrder ? state.activeOrder.order_reference : document.getElementById('orderRef').value.trim();
       if (!orderRef) {
-        alert('Please complete Step 1 or enter an Order Reference before adding manual quotes.');
+        alert('Please complete Shipment Details or enter an Order Reference before adding manual quotes.');
         return;
       }
 
@@ -1628,6 +1632,20 @@ async function fetchAndRenderMlPrediction() {
 
   try {
     elements.mlPredictedPrice.textContent = 'Calculating...';
+    if (elements.mlSelectedCourierPrice) {
+      if (selectedQuote && selectedQuote.cost_breakdown) {
+        elements.mlSelectedCourierPrice.textContent = `₹ ${selectedQuote.cost_breakdown.total_cost.toFixed(2)}`;
+        if (elements.mlSelectedCourierName) {
+          elements.mlSelectedCourierName.textContent = selectedQuote.courier_name;
+        }
+      } else {
+        elements.mlSelectedCourierPrice.textContent = '₹ ---.--';
+        if (elements.mlSelectedCourierName) {
+          elements.mlSelectedCourierName.textContent = 'No quote selected';
+        }
+      }
+    }
+
     const res = await fetch('/api/v1/predictions/shipment-price', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1636,68 +1654,114 @@ async function fetchAndRenderMlPrediction() {
 
     if (!res.ok) {
       elements.mlPredictedPrice.textContent = 'Unavailable';
-      elements.mlConfidenceInterval.textContent = 'Model error';
+      if (elements.mlStatusBadge) {
+        elements.mlStatusBadge.className = 'badge-benchmark badge-benchmark-neutral';
+        elements.mlStatusBadge.textContent = 'Unavailable';
+      }
+      if (elements.mlBenchmarkExplanation) {
+        elements.mlBenchmarkExplanation.textContent = 'Model endpoint error occurred.';
+      }
+      if (elements.mlConfidenceInterval) {
+        elements.mlConfidenceInterval.textContent = 'Model error';
+      }
       return;
     }
 
     const data = await res.json();
     const currSym = data.currency === 'USD' ? '$' : '₹';
+    const estPrice = data.predicted_price;
 
-    if (data.predicted_price !== null && data.predicted_price !== undefined) {
-      elements.mlPredictedPrice.textContent = `${currSym} ${data.predicted_price.toFixed(2)}`;
+    if (estPrice !== null && estPrice !== undefined) {
+      elements.mlPredictedPrice.textContent = `${currSym} ${estPrice.toFixed(2)}`;
     } else {
       elements.mlPredictedPrice.textContent = 'Unavailable';
-      elements.mlConfidenceInterval.textContent = data.error_message || 'Model Unavailable';
     }
 
-    if (data.confidence_interval && data.confidence_interval.length === 2) {
-      elements.mlConfidenceInterval.textContent = `90% CI: ${currSym} ${data.confidence_interval[0].toFixed(2)} – ${currSym} ${data.confidence_interval[1].toFixed(2)}`;
-    } else if (data.predicted_price !== null && data.predicted_price !== undefined) {
-      elements.mlConfidenceInterval.textContent = 'CI: Not Available';
-    }
+    // Selected courier price & comparison
+    const quotePrice = selectedQuote && selectedQuote.cost_breakdown ? selectedQuote.cost_breakdown.total_cost : null;
 
-    // Variance badge & analysis
-    if (data.quote_comparison) {
-      const qc = data.quote_comparison;
-      let badgeClass = 'badge-neutral';
+    if (quotePrice !== null && estPrice !== null && estPrice !== undefined && estPrice > 0) {
+      const diff = quotePrice - estPrice;
+      const pctDiff = (diff / estPrice) * 100.0;
+      const absPct = Math.abs(pctDiff);
 
-      if (qc.verdict === 'CONGRUENT') {
-        badgeClass = 'badge-congruent';
-      } else if (qc.verdict === 'COMPETITIVE_DISCOUNT') {
-        badgeClass = 'badge-discount';
-      } else if (qc.verdict === 'PREMIUM_OVERRUN') {
-        badgeClass = 'badge-overrun';
+      let statusText = '';
+      let badgeClass = '';
+      let explanation = '';
+
+      if (pctDiff <= -5.0) {
+        statusText = 'Below estimate';
+        badgeClass = 'badge-below-estimate';
+        explanation = `${absPct.toFixed(1)}% below the estimated price`;
+      } else if (pctDiff >= 5.0) {
+        statusText = 'Above estimate';
+        badgeClass = 'badge-above-estimate';
+        explanation = `${absPct.toFixed(1)}% above the estimated price`;
+      } else {
+        statusText = 'Near estimate';
+        badgeClass = 'badge-near-estimate';
+        explanation = `${absPct.toFixed(1)}% variance (within expected range)`;
       }
 
-      const sign = qc.percentage_difference > 0 ? '+' : '';
-      elements.mlVarianceBadge.innerHTML = `
-        <span class="badge-variance ${badgeClass}">
-          ${qc.verdict.replace('_', ' ')} (${sign}${qc.percentage_difference}%)
-        </span>
-      `;
-      elements.mlVarianceDesc.textContent = qc.analysis;
+      if (elements.mlStatusBadge) {
+        elements.mlStatusBadge.className = `badge-benchmark ${badgeClass}`;
+        elements.mlStatusBadge.textContent = statusText;
+      }
+      if (elements.mlBenchmarkExplanation) {
+        elements.mlBenchmarkExplanation.textContent = explanation;
+      }
+    } else if (estPrice !== null && estPrice !== undefined) {
+      if (elements.mlStatusBadge) {
+        elements.mlStatusBadge.className = 'badge-benchmark badge-benchmark-neutral';
+        elements.mlStatusBadge.textContent = 'Awaiting Comparison';
+      }
+      if (elements.mlBenchmarkExplanation) {
+        elements.mlBenchmarkExplanation.textContent = 'Select a courier quote to compare against benchmark.';
+      }
     } else {
-      elements.mlVarianceBadge.innerHTML = `<span class="badge-variance badge-neutral">No Active Quote</span>`;
-      elements.mlVarianceDesc.textContent = 'Select or compute carrier quotes to view comparison variance.';
+      if (elements.mlStatusBadge) {
+        elements.mlStatusBadge.className = 'badge-benchmark badge-benchmark-neutral';
+        elements.mlStatusBadge.textContent = 'Estimate Unavailable';
+      }
+      if (elements.mlBenchmarkExplanation) {
+        elements.mlBenchmarkExplanation.textContent = data.error_message || 'Price benchmark model currently unavailable.';
+      }
     }
 
-    // Advice & action
-    elements.mlAdviceText.textContent = data.agent_advice || data.explanation;
-    elements.mlRecommendedAction.textContent = `Action: ${data.recommended_action || 'Review live rates'}`;
+    // Optional legacy element support
+    if (elements.mlVarianceBadge) {
+      elements.mlVarianceBadge.innerHTML = elements.mlStatusBadge ? elements.mlStatusBadge.outerHTML : '';
+    }
+    if (elements.mlVarianceDesc && elements.mlBenchmarkExplanation) {
+      elements.mlVarianceDesc.textContent = elements.mlBenchmarkExplanation.textContent;
+    }
 
-    // Meta chips
-    elements.mlMetaModel.textContent = `Model: ${data.model_name}`;
-    elements.mlMetaVersion.textContent = `v${data.model_version}`;
-    elements.mlMetaSchema.textContent = `Schema v${data.feature_schema_version}`;
+    // Technical details
+    if (elements.mlConfidenceInterval) {
+      if (data.confidence_interval && data.confidence_interval.length === 2) {
+        elements.mlConfidenceInterval.textContent = `90% CI: ${currSym} ${data.confidence_interval[0].toFixed(2)} – ${currSym} ${data.confidence_interval[1].toFixed(2)}`;
+      } else {
+        elements.mlConfidenceInterval.textContent = 'CI: Not Available';
+      }
+    }
 
-    // Limitations
-    if (data.limitations && data.limitations.length > 0) {
+    if (elements.mlMetaModel) elements.mlMetaModel.textContent = `Model: ${data.model_name}`;
+    if (elements.mlMetaVersion) elements.mlMetaVersion.textContent = `v${data.model_version}`;
+    if (elements.mlMetaSchema) elements.mlMetaSchema.textContent = `Schema v${data.feature_schema_version}`;
+
+    if (elements.mlLimitationsList && data.limitations && data.limitations.length > 0) {
       elements.mlLimitationsList.innerHTML = data.limitations.map(l => `<li>${l}</li>`).join('');
     }
   } catch (err) {
     console.warn('ML Prediction lookup error:', err);
     elements.mlPredictedPrice.textContent = 'Error';
-    elements.mlConfidenceInterval.textContent = err.message;
+    if (elements.mlStatusBadge) {
+      elements.mlStatusBadge.className = 'badge-benchmark badge-benchmark-neutral';
+      elements.mlStatusBadge.textContent = 'Error';
+    }
+    if (elements.mlBenchmarkExplanation) {
+      elements.mlBenchmarkExplanation.textContent = err.message || 'Unable to retrieve prediction.';
+    }
   }
 }
 

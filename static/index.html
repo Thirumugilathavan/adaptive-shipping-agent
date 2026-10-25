@@ -70,34 +70,30 @@
         <!-- Step Progress Header -->
         <div class="wizard-stepper" id="wizardStepper">
           <div class="step-item active" data-step="1" id="stepIndicator1">
-            <div class="step-circle">1</div>
+            <div class="step-dot"></div>
             <div class="step-info">
-              <span class="step-num">Step 1</span>
-              <span class="step-title">Shipment &amp; Dimensions</span>
+              <span class="step-title">Shipment Details</span>
             </div>
           </div>
           <div class="step-connector" id="connector1"></div>
           <div class="step-item" data-step="2" id="stepIndicator2">
-            <div class="step-circle">2</div>
+            <div class="step-dot"></div>
             <div class="step-info">
-              <span class="step-num">Step 2</span>
               <span class="step-title">Carrier Rates</span>
             </div>
           </div>
           <div class="step-connector" id="connector2"></div>
           <div class="step-item" data-step="3" id="stepIndicator3">
-            <div class="step-circle">3</div>
+            <div class="step-dot"></div>
             <div class="step-info">
-              <span class="step-num">Step 3</span>
-              <span class="step-title">Approval &amp; Gate</span>
+              <span class="step-title">Approval Gate</span>
             </div>
           </div>
           <div class="step-connector" id="connector3"></div>
           <div class="step-item" data-step="4" id="stepIndicator4">
-            <div class="step-circle">4</div>
+            <div class="step-dot"></div>
             <div class="step-info">
-              <span class="step-num">Step 4</span>
-              <span class="step-title">Label &amp; Confirmation</span>
+              <span class="step-title">Shipping Label</span>
             </div>
           </div>
         </div>
@@ -109,7 +105,7 @@
           <div class="panel form-panel">
             <div class="panel-header">
               <div>
-                <h2>Step 1: Shipment Details &amp; Package Dimensions</h2>
+                <h2>Shipment Details &amp; Package Dimensions</h2>
                 <p class="panel-desc">Enter origin/destination PIN codes and precise parcel dimensions to evaluate available courier services.</p>
               </div>
               <button id="btnResetForm" class="btn-ghost" title="Reset form to defaults">Reset Form</button>
@@ -241,7 +237,7 @@
           <div class="panel">
             <div class="panel-header">
               <div>
-                <h2>Step 2: Carrier Rate Selection</h2>
+                <h2>Carrier Rate Selection</h2>
                 <p class="panel-desc">Review ranked courier quotes, SLA turnaround times, and fee breakdowns.</p>
               </div>
               <div style="display:flex; gap:8px;">
@@ -249,6 +245,11 @@
                 <button id="btnOpenDashboardExportModal" class="btn-outline btn-sm hidden">Paste Dashboard Export</button>
                 <button id="btnBackToStep1" class="btn-outline btn-sm">Edit Dimensions</button>
               </div>
+            </div>
+
+            <!-- Prominent Simulated Notice Banner -->
+            <div class="simulated-notice-banner" id="simulatedNoticeBanner">
+              SIMULATED COURIER OPTIONS &mdash; NOT LIVE CARRIER QUOTES
             </div>
 
             <!-- Quick Summary Strip -->
@@ -296,73 +297,75 @@
               </div>
             </div>
 
-            <!-- ML Shipment Price Prediction & Market Benchmark Card -->
-            <div id="mlPredictionCard" class="card ml-prediction-card">
-              <div class="ml-card-header">
-                <div class="ml-title-group">
-                  <span class="badge-ml">ML RATE INTELLIGENCE</span>
-                  <h3 class="ml-heading">Machine Learning Price Benchmark</h3>
+            <!-- Machine Learning Price Benchmark Card -->
+            <div id="mlPredictionCard" class="card ml-benchmark-card">
+              <div class="ml-benchmark-header">
+                <div class="ml-benchmark-title-wrap">
+                  <h3 class="ml-benchmark-title">Machine Learning Price Benchmark</h3>
                 </div>
-                <div class="ml-model-switcher">
-                  <label for="mlModelSelect" class="ml-switcher-label">Model:</label>
-                  <select id="mlModelSelect" class="ml-select">
-                    <option value="domestic_courier" selected>Model 1: Domestic Baseline (INR)</option>
-                    <option value="model2_catboost">Model 2: Courier Intelligence (CatBoost INR)</option>
-                    <option value="reference_sculpture">Reference: Sculpture Benchmark (USD)</option>
+                <div class="ml-benchmark-model-wrap">
+                  <label for="mlModelSelect" class="ml-model-label">Model:</label>
+                  <select id="mlModelSelect" class="ml-model-select">
+                    <option value="domestic_courier" selected>Model 1: Domestic Baseline</option>
+                    <option value="model2_catboost">Model 2: Courier Intelligence</option>
                   </select>
                 </div>
               </div>
 
-              <!-- Non-Binding Disclaimer Notice -->
-              <div class="ml-disclaimer-notice">
-                <span class="ml-disc-tag">[NON-BINDING ESTIMATE]</span>
-                <span>ML rate benchmark for operational price validation. Carrier quotes strictly govern actual booking and billing.</span>
-              </div>
-
-              <!-- Price & Variance Metric Row -->
-              <div class="ml-metrics-grid">
-                <div class="ml-metric-box ml-price-box">
-                  <span class="ml-metric-label">Predicted Market Baseline</span>
-                  <div class="ml-price-value" id="mlPredictedPrice">₹ ---.--</div>
-                  <div class="ml-confidence-range" id="mlConfidenceInterval">90% CI: ₹ --- – ₹ ---</div>
+              <!-- Benchmark Comparison Grid -->
+              <div class="ml-benchmark-grid">
+                <div class="ml-benchmark-col">
+                  <span class="ml-benchmark-col-label">Estimated Price</span>
+                  <div class="ml-benchmark-price" id="mlPredictedPrice">₹ ---.--</div>
+                  <span class="ml-benchmark-subtext">Statistical Benchmark</span>
                 </div>
 
-                <div class="ml-metric-box ml-variance-box">
-                  <span class="ml-metric-label">Selected Quote vs Benchmark</span>
-                  <div id="mlVarianceBadge" class="ml-badge-container">
-                    <span class="badge-variance badge-neutral">Awaiting Comparison</span>
+                <div class="ml-benchmark-col">
+                  <span class="ml-benchmark-col-label">Selected Courier Price</span>
+                  <div class="ml-benchmark-price" id="mlSelectedCourierPrice">₹ ---.--</div>
+                  <span class="ml-benchmark-subtext" id="mlSelectedCourierName">No quote selected</span>
+                </div>
+
+                <div class="ml-benchmark-col ml-benchmark-status-col">
+                  <span class="ml-benchmark-col-label">Benchmark Status</span>
+                  <div id="mlStatusPillContainer">
+                    <span id="mlStatusBadge" class="badge-benchmark badge-benchmark-neutral">Awaiting Comparison</span>
                   </div>
-                  <div class="ml-variance-desc" id="mlVarianceDesc">Variance against active courier quote</div>
+                  <div id="mlBenchmarkExplanation" class="ml-benchmark-explanation">Select a courier quote to compare.</div>
                 </div>
               </div>
 
-              <!-- Explanation & Agent Advice -->
-              <div class="ml-advice-box">
-                <div class="ml-advice-title">Agent Pricing Advice:</div>
-                <p id="mlAdviceText" class="ml-advice-text">Establish baseline by calculating courier rates.</p>
-                <div class="ml-action-callout" id="mlRecommendedAction">Action: Review live quotes.</div>
+              <!-- Brief Non-Alarming Disclaimer -->
+              <div class="ml-benchmark-disclaimer">
+                Estimate only; the courier quote determines the booking price.
               </div>
 
-              <!-- Model Metadata & Limitations Footer -->
-              <div class="ml-footer">
-                <div class="ml-meta-chips">
-                  <span class="ml-chip" id="mlMetaModel">GradientBoostingRegressor</span>
-                  <span class="ml-chip" id="mlMetaVersion">v1.0.0</span>
-                  <span class="ml-chip" id="mlMetaSchema">Schema v1.0.0</span>
+              <!-- Collapsed Technical Details -->
+              <details class="ml-technical-details" id="mlTechnicalDetails">
+                <summary class="ml-technical-summary">Technical details</summary>
+                <div class="ml-technical-body">
+                  <div class="ml-tech-row">
+                    <span class="ml-tech-label">Confidence Interval:</span>
+                    <span id="mlConfidenceInterval" class="ml-tech-val">90% CI: Not Available</span>
+                  </div>
+                  <div class="ml-tech-row">
+                    <span class="ml-tech-label">Model Metadata:</span>
+                    <div class="ml-tech-chips">
+                      <span class="ml-chip" id="mlMetaModel">Model: Domestic Baseline</span>
+                      <span class="ml-chip" id="mlMetaVersion">v1.0.0</span>
+                      <span class="ml-chip" id="mlMetaSchema">Schema v1.0.0</span>
+                    </div>
+                  </div>
+                  <div class="ml-tech-limitations">
+                    <span class="ml-tech-label">Model Limitations:</span>
+                    <ul id="mlLimitationsList" class="ml-tech-list">
+                      <li>Statistical regression benchmark trained on regional PIN codes and dimensional weight slabs.</li>
+                      <li>Fuel and accessorial surcharges are estimated statistically.</li>
+                      <li>Binding courier quotes govern actual carrier billing.</li>
+                    </ul>
+                  </div>
                 </div>
-                <button type="button" class="btn-link" id="btnToggleMlDetails">View Limitations &amp; Features</button>
-              </div>
-
-              <div class="ml-limitations-drawer hidden" id="mlLimitationsDrawer">
-                <div class="ml-drawer-content">
-                  <h5>Model Assumptions &amp; Operational Limitations:</h5>
-                  <ul id="mlLimitationsList" class="ml-bullet-list">
-                    <li>Statistical regression trained on domestic regional PIN codes, dimensional volume, and weight slabs.</li>
-                    <li>Accessorial fuel, octroi, and emergency surcharges are estimated statistically.</li>
-                    <li>Binding contractual provider quotes always take precedence over ML estimates.</li>
-                  </ul>
-                </div>
-              </div>
+              </details>
             </div>
 
             <!-- Courier Comparison List -->
@@ -434,7 +437,7 @@
           <div class="panel">
             <div class="panel-header">
               <div>
-                <h2>Step 3: Approval &amp; Dispatch Gate</h2>
+                <h2>Approval &amp; Dispatch Gate</h2>
                 <p class="panel-desc">Verify total landed cost, route serviceability, and confirm dispatch authorization.</p>
               </div>
               <span class="badge-fsm">FSM: PENDING_APPROVAL</span>

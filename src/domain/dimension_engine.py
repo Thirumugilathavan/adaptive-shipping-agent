@@ -525,7 +525,7 @@ OFFICIAL_DOCUMENTED_CAPABILITIES: Dict[str, CourierCapabilityRule] = {
     # 1. Air Express Priority (Sourced from Blue Dart Conditions & Delhivery Air Express)
     "DEMO_AIR_EXPRESS": CourierCapabilityRule(
         courier_code="DEMO_AIR_EXPRESS",
-        courier_name="Demo Air Express (Simulated)",
+        courier_name="Blue Dart Express (Simulated)",
         service_type="Air Express Priority",
         mode="Air",
         max_length_cm=120.0,
@@ -547,7 +547,7 @@ OFFICIAL_DOCUMENTED_CAPABILITIES: Dict[str, CourierCapabilityRule] = {
     # 2. Surface Ground Economy (Sourced from Delhivery Ground Terms & Blue Dart Surface)
     "DEMO_SURFACE_STD": CourierCapabilityRule(
         courier_code="DEMO_SURFACE_STD",
-        courier_name="Demo Surface Standard (Simulated)",
+        courier_name="Delhivery Surface (Simulated)",
         service_type="Surface Ground Economy",
         mode="Surface",
         max_length_cm=150.0,
@@ -569,7 +569,7 @@ OFFICIAL_DOCUMENTED_CAPABILITIES: Dict[str, CourierCapabilityRule] = {
     # 3. Heavy Commercial Freight (Sourced from Commercial Cargo Standards & Shiprocket Cargo)
     "DEMO_ECONOMY_CARGO": CourierCapabilityRule(
         courier_code="DEMO_ECONOMY_CARGO",
-        courier_name="Demo Heavy Cargo (Simulated)",
+        courier_name="DTDC Heavy Cargo (Simulated)",
         service_type="Heavy Commercial Freight",
         mode="Cargo",
         max_length_cm=250.0,

@@ -74,6 +74,23 @@ COURIER_CODE_MAPPING: Dict[str, str] = {
     "DEMO_REGIONAL_ROAD": "QuickLogistics",
     "DEMO_B2B_LOGISTICS": "FastShip",
     "DEMO_SMART_PARCEL": "SpeedyExpress",
+    "DEMO_EXPRESS_GOLD": "RapidShip",
+    "Blue Dart Express (Simulated)": "BlueDart",
+    "Delhivery Surface (Simulated)": "IndiaCourier",
+    "DTDC Heavy Cargo (Simulated)": "CourierX",
+    "XpressBees Same-Day (Simulated)": "RapidShip",
+    "India Post Parcel (Simulated)": "ShipNow",
+    "Blue Dart Overnight (Simulated)": "ExpressWay",
+    "DTDC Regional (Simulated)": "QuickLogistics",
+    "Delhivery Freight (Simulated)": "FastShip",
+    "Ecom Express Parcel (Simulated)": "SpeedyExpress",
+    "XpressBees Priority (Simulated)": "RapidShip",
+    "Blue Dart": "BlueDart",
+    "Delhivery": "IndiaCourier",
+    "DTDC": "CourierX",
+    "India Post": "ShipNow",
+    "XpressBees": "RapidShip",
+    "Ecom Express": "SpeedyExpress",
 }
 
 

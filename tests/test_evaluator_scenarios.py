@@ -106,7 +106,7 @@ def test_scenario_g_heavy_cargo_slab(evaluator_suite):
     res = evaluator_suite.run_scenario("DEMO_G")
     assert res.status == ScenarioStatus.PASSED
     assert res.scenario_id == "DEMO_G"
-    assert res.evidence["winner_courier"] == "Demo Heavy Cargo (Simulated)"
+    assert res.evidence["winner_courier"] == "DTDC Heavy Cargo (Simulated)"
     assert res.evidence["winner_total_cost"] < 600.0
 
 

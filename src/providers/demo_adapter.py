@@ -40,6 +40,13 @@ from src.providers.base import (
 )
 
 
+from src.domain.courier_mapping import (
+    CONFIGURABLE_SIMULATED_COURIERS,
+    SIMULATED_NOTICE_BANNER,
+    get_courier_display_name,
+)
+
+
 class DemoCourierConfig(BaseModel):
     """Configuration specification for a simulated demo courier."""
     courier_code: str
@@ -64,14 +71,14 @@ class DemoCourierConfig(BaseModel):
 
 # Core three couriers for baseline test compatibility
 CORE_DEMO_COURIERS: list[DemoCourierConfig] = [
-    # 1. Air Express Priority
+    # 1. Air Express Priority (Blue Dart recognizable brand)
     DemoCourierConfig(
         courier_code="DEMO_AIR_EXPRESS",
-        courier_name="Demo Air Express (Simulated)",
+        courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_AIR_EXPRESS"]["display_name"],
         service_type="Air Express Priority",
         pricing_rule=CourierPricingRule(
             courier_code="DEMO_AIR_EXPRESS",
-            courier_name="Demo Air Express (Simulated)",
+            courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_AIR_EXPRESS"]["display_name"],
             service_type="Air Express Priority",
             first_slab_kg=0.5,
             first_slab_rate=70.0,
@@ -100,14 +107,14 @@ CORE_DEMO_COURIERS: list[DemoCourierConfig] = [
         evidence_url="https://www.bluedart.com/conditions",
         rule_status="VERIFIED",
     ),
-    # 2. Surface Ground Economy
+    # 2. Surface Ground Economy (Delhivery recognizable brand)
     DemoCourierConfig(
         courier_code="DEMO_SURFACE_STD",
-        courier_name="Demo Surface Standard (Simulated)",
+        courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_SURFACE_STD"]["display_name"],
         service_type="Surface Ground Economy",
         pricing_rule=CourierPricingRule(
             courier_code="DEMO_SURFACE_STD",
-            courier_name="Demo Surface Standard (Simulated)",
+            courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_SURFACE_STD"]["display_name"],
             service_type="Surface Ground Economy",
             first_slab_kg=1.0,
             first_slab_rate=50.0,
@@ -136,14 +143,14 @@ CORE_DEMO_COURIERS: list[DemoCourierConfig] = [
         evidence_url="https://help.delhivery.com/docs/calculating-volumetric-weight",
         rule_status="VERIFIED",
     ),
-    # 3. Heavy Commercial Freight
+    # 3. Heavy Commercial Freight (DTDC recognizable brand)
     DemoCourierConfig(
         courier_code="DEMO_ECONOMY_CARGO",
-        courier_name="Demo Heavy Cargo (Simulated)",
+        courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_ECONOMY_CARGO"]["display_name"],
         service_type="Heavy Commercial Freight",
         pricing_rule=CourierPricingRule(
             courier_code="DEMO_ECONOMY_CARGO",
-            courier_name="Demo Heavy Cargo (Simulated)",
+            courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_ECONOMY_CARGO"]["display_name"],
             service_type="Heavy Commercial Freight",
             first_slab_kg=5.0,
             first_slab_rate=180.0,
@@ -176,14 +183,14 @@ CORE_DEMO_COURIERS: list[DemoCourierConfig] = [
 
 # Additional 7 couriers to provide 10 distinct options in the application
 EXTENDED_DEMO_COURIERS: list[DemoCourierConfig] = [
-    # 4. Same-Day Metro Express
+    # 4. Same-Day Metro Express (XpressBees recognizable brand)
     DemoCourierConfig(
         courier_code="DEMO_SAME_DAY",
-        courier_name="Demo Flash Same-Day (Simulated)",
+        courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_SAME_DAY"]["display_name"],
         service_type="Same-Day Metro Delivery",
         pricing_rule=CourierPricingRule(
             courier_code="DEMO_SAME_DAY",
-            courier_name="Demo Flash Same-Day (Simulated)",
+            courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_SAME_DAY"]["display_name"],
             service_type="Same-Day Metro Delivery",
             first_slab_kg=0.5,
             first_slab_rate=130.0,
@@ -208,14 +215,14 @@ EXTENDED_DEMO_COURIERS: list[DemoCourierConfig] = [
         blocked_destination_pin_prefixes=["7", "8"],
         max_cod_amount=25000.0,
     ),
-    # 5. Budget Saver Surface
+    # 5. Budget Saver Surface (India Post recognizable brand)
     DemoCourierConfig(
         courier_code="DEMO_BUDGET_SAVER",
-        courier_name="Demo Budget Saver (Simulated)",
+        courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_BUDGET_SAVER"]["display_name"],
         service_type="Budget Surface Economy",
         pricing_rule=CourierPricingRule(
             courier_code="DEMO_BUDGET_SAVER",
-            courier_name="Demo Budget Saver (Simulated)",
+            courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_BUDGET_SAVER"]["display_name"],
             service_type="Budget Surface Economy",
             first_slab_kg=1.0,
             first_slab_rate=52.0,
@@ -239,14 +246,14 @@ EXTENDED_DEMO_COURIERS: list[DemoCourierConfig] = [
         allowed_package_types=[PackageType.BOX, PackageType.FLYER],
         max_cod_amount=15000.0,
     ),
-    # 6. Premium Overnight Express
+    # 6. Premium Overnight Express (Blue Dart recognizable brand)
     DemoCourierConfig(
         courier_code="DEMO_OVERNIGHT",
-        courier_name="Demo NightJet Overnight (Simulated)",
+        courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_OVERNIGHT"]["display_name"],
         service_type="Overnight Priority Air",
         pricing_rule=CourierPricingRule(
             courier_code="DEMO_OVERNIGHT",
-            courier_name="Demo NightJet Overnight (Simulated)",
+            courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_OVERNIGHT"]["display_name"],
             service_type="Overnight Priority Air",
             first_slab_kg=0.5,
             first_slab_rate=110.0,
@@ -270,14 +277,14 @@ EXTENDED_DEMO_COURIERS: list[DemoCourierConfig] = [
         allowed_package_types=[PackageType.BOX, PackageType.FLYER, PackageType.ENVELOPE, PackageType.CUSTOM],
         blocked_destination_pin_prefixes=["79"],
     ),
-    # 7. Regional Road Express
+    # 7. Regional Road Express (DTDC recognizable brand)
     DemoCourierConfig(
         courier_code="DEMO_REGIONAL_ROAD",
-        courier_name="Demo Regional Road Express (Simulated)",
+        courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_REGIONAL_ROAD"]["display_name"],
         service_type="Regional Highway Express",
         pricing_rule=CourierPricingRule(
             courier_code="DEMO_REGIONAL_ROAD",
-            courier_name="Demo Regional Road Express (Simulated)",
+            courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_REGIONAL_ROAD"]["display_name"],
             service_type="Regional Highway Express",
             first_slab_kg=1.5,
             first_slab_rate=58.0,
@@ -301,14 +308,14 @@ EXTENDED_DEMO_COURIERS: list[DemoCourierConfig] = [
         allowed_package_types=list(PackageType),
         max_cod_amount=40000.0,
     ),
-    # 8. B2B Commercial Logistics
+    # 8. B2B Commercial Logistics (Delhivery recognizable brand)
     DemoCourierConfig(
         courier_code="DEMO_B2B_LOGISTICS",
-        courier_name="Demo B2B Bulk Logistics (Simulated)",
+        courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_B2B_LOGISTICS"]["display_name"],
         service_type="B2B Scheduled Cargo",
         pricing_rule=CourierPricingRule(
             courier_code="DEMO_B2B_LOGISTICS",
-            courier_name="Demo B2B Bulk Logistics (Simulated)",
+            courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_B2B_LOGISTICS"]["display_name"],
             service_type="B2B Scheduled Cargo",
             first_slab_kg=10.0,
             first_slab_rate=260.0,
@@ -332,14 +339,14 @@ EXTENDED_DEMO_COURIERS: list[DemoCourierConfig] = [
         allowed_package_types=[PackageType.BOX, PackageType.WOODEN_CRATE, PackageType.CUSTOM],
         max_cod_amount=0.0,  # No COD for B2B
     ),
-    # 9. Smart Parcel Connect (No max_length_cm configured -> unverified size check)
+    # 9. Smart Parcel Connect (Ecom Express recognizable brand)
     DemoCourierConfig(
         courier_code="DEMO_SMART_PARCEL",
-        courier_name="Demo Smart Parcel Connect (Simulated)",
+        courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_SMART_PARCEL"]["display_name"],
         service_type="Standard Parcel Delivery",
         pricing_rule=CourierPricingRule(
             courier_code="DEMO_SMART_PARCEL",
-            courier_name="Demo Smart Parcel Connect (Simulated)",
+            courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_SMART_PARCEL"]["display_name"],
             service_type="Standard Parcel Delivery",
             first_slab_kg=0.5,
             first_slab_rate=65.0,
@@ -363,14 +370,14 @@ EXTENDED_DEMO_COURIERS: list[DemoCourierConfig] = [
         allowed_package_types=[PackageType.BOX, PackageType.FLYER, PackageType.ENVELOPE, PackageType.CUSTOM],
         max_cod_amount=30000.0,
     ),
-    # 10. Express Gold Tier (No max_length_cm configured -> unverified size check)
+    # 10. Express Gold Tier (XpressBees recognizable brand)
     DemoCourierConfig(
         courier_code="DEMO_EXPRESS_GOLD",
-        courier_name="Demo Express Gold Line (Simulated)",
+        courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_EXPRESS_GOLD"]["display_name"],
         service_type="Premium Fast Track",
         pricing_rule=CourierPricingRule(
             courier_code="DEMO_EXPRESS_GOLD",
-            courier_name="Demo Express Gold Line (Simulated)",
+            courier_name=CONFIGURABLE_SIMULATED_COURIERS["DEMO_EXPRESS_GOLD"]["display_name"],
             service_type="Premium Fast Track",
             first_slab_kg=0.5,
             first_slab_rate=85.0,
@@ -643,6 +650,7 @@ class DemoShippingAdapter(CourierProvider):
                     input_hash=input_hash,
                     decision_explanation=explanation,
                     is_demo_data=True,
+                    disclaimer=SIMULATED_NOTICE_BANNER,
                     missing_evidence=(
                         ["Courier maximum parcel dimension limits not documented in provider guidelines"]
                         if is_unverified else [
@@ -1011,7 +1019,7 @@ class LocalSandboxShippingAdapter(DemoShippingAdapter):
                 "Aggregator Sandbox Mock endpoint: mock://courier-aggregator/v1/serviceability-rates",
                 "No live external carrier network connected",
             ]
-            q_dict["disclaimer"] = "LOCAL COURIER SANDBOX (SIMULATION): Deterministic offline quote for sandbox testing."
+            q_dict["disclaimer"] = f"LOCAL COURIER SANDBOX: {SIMULATED_NOTICE_BANNER}."
 
             raw_payload = {
                 "courier_name": q.courier_name,
