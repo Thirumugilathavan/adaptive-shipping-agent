@@ -670,114 +670,148 @@ def find_alternative_recommendations(
     decision_reason: str = ""
     pref_applied_label = mode
 
-    # Preference: Preferred Carrier
-    if preferred_courier:
-        pref_norm = preferred_courier.strip().lower()
-        pref_match = next(
-            (q for q in eligible if pref_norm in q.courier_code.lower() or pref_norm in q.courier_name.lower()),
-            None
-        )
-        if pref_match:
-            selected_quote = pref_match
-            pref_applied_label = f"Preferred Carrier: {pref_match.courier_name}"
-            decision_reason = f"Selected your preferred carrier '{pref_match.courier_name}'. Fully serviceable for this route at ₹{pref_match.cost_breakdown.total_cost:.2f}."
-        else:
-            # Check if user requested an unserviceable courier
-            unsvc_match = next(
-                (q for q in unserviceable if pref_norm in q.courier_code.lower() or pref_norm in q.courier_name.lower()),
-                None
-            )
-            if unsvc_match:
-                reason = unsvc_match.unserviceable_reason or "; ".join(unsvc_match.eligibility_reasons or []) or "Unserviceable for this route."
-                decision_reason = (
-                    f"Requested courier '{unsvc_match.courier_name}' cannot be recommended because it is unserviceable or excluded ({reason}). "
-                    f"Showing best available alternative."
-                )
-            else:
-                decision_reason = f"Requested carrier '{preferred_courier}' is not in candidate list. Showing best alternative."
+    # Pre-calculate composite normalization: 60% landed cost, 40% transit days
+    min_c = min((q.cost_breakdown.total_cost for q in eligible if q.cost_breakdown), default=1.0)
+    max_c = max((q.cost_breakdown.total_cost for q in eligible if q.cost_breakdown), default=min_c + 1.0)
+    min_d = min((q.estimated_delivery_days or 3 for q in eligible), default=1)
+    max_d = max((q.estimated_delivery_days or 3 for q in eligible), default=min_d + 1)
+    c_span = max(max_c - min_c, 1.0)
+    d_span = max(max_d - min_d, 1)
 
-    # If no preferred courier matched or not specified, evaluate preference mode
-    pref_notice = decision_reason
-    if selected_quote is None:
-        if mode == "fastest":
-            pref_applied_label = "Fastest Delivery"
-            # Sort by delivery days ascending, then cost ascending
-            sorted_by_speed = sorted(
-                eligible,
-                key=lambda q: (q.estimated_delivery_days or 99, q.cost_breakdown.total_cost if q.cost_breakdown else 9999.0)
-            )
-            if exclude_current_winner and len(sorted_by_speed) > 1 and sorted_by_speed[0].quote_id == current_winner_id:
-                selected_quote = sorted_by_speed[1]
-            else:
-                selected_quote = sorted_by_speed[0]
+    def score_q(q: CourierQuote) -> float:
+        cost_norm = ((q.cost_breakdown.total_cost if q.cost_breakdown else max_c) - min_c) / c_span
+        speed_norm = ((q.estimated_delivery_days or max_d) - min_d) / d_span
+        return 0.6 * cost_norm + 0.4 * speed_norm
 
-            sla = selected_quote.estimated_delivery_days or 1
-            cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
-            if selected_quote.quote_id == baseline_q.quote_id:
-                mode_reason = f"Current recommendation is already the fastest available eligible option ({sla} Days SLA at ₹{cost:.2f})."
-            else:
-                mode_reason = f"Prioritizes delivery turnaround: Delivers in {sla} Days (₹{cost:.2f})."
-
-        elif mode == "lowest_cost":
-            pref_applied_label = "Lowest Shipping Cost"
-            sorted_by_cost = sorted(
-                eligible,
-                key=lambda q: (q.cost_breakdown.total_cost if q.cost_breakdown else 9999.0, q.estimated_delivery_days or 99)
-            )
-            if exclude_current_winner and len(sorted_by_cost) > 1 and sorted_by_cost[0].quote_id == current_winner_id:
-                selected_quote = sorted_by_cost[1]
-            else:
-                selected_quote = sorted_by_cost[0]
-
-            cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
-            sla = selected_quote.estimated_delivery_days or 3
-            if selected_quote.quote_id == baseline_q.quote_id:
-                mode_reason = f"Current recommendation is already the lowest cost option available (₹{cost:.2f}, {sla} Days SLA)."
-            else:
-                mode_reason = f"Prioritizes shipping savings: Lowest landed freight cost at ₹{cost:.2f} (SLA: {sla} Days)."
-
-        elif mode in ("next_best", "reject"):
-            pref_applied_label = "Alternative Choice"
-            remaining = [q for q in eligible if q.quote_id != current_winner_id]
-            if remaining:
-                # Pick the next best eligible candidate
-                selected_quote = remaining[0]
+    # Preference Mode 1: Preferred Courier
+    if mode == "preferred_courier":
+        pref_carrier = (preferred_courier or "").strip()
+        if pref_carrier:
+            pref_norm = pref_carrier.lower()
+            matching = [
+                q for q in eligible
+                if pref_norm in q.courier_code.lower() or pref_norm in (q.courier_name or "").lower()
+            ]
+            if matching:
+                # Prioritize requested carrier; if multiple services, sort by lowest cost
+                matching.sort(key=lambda q: (q.cost_breakdown.total_cost if q.cost_breakdown else 9999.0, q.estimated_delivery_days or 99))
+                selected_quote = matching[0]
+                pref_applied_label = f"Preferred Carrier: {selected_quote.courier_name}"
                 cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
                 sla = selected_quote.estimated_delivery_days or 3
-                mode_reason = f"Alternative recommendation: {selected_quote.courier_name} at ₹{cost:.2f} ({sla} Days SLA)."
+                diff_c = round(cost - base_cost, 2)
+                diff_d = (sla - base_days) if sla is not None and base_days is not None else 0
+                trade_info = f"at ₹{cost:.2f} ({sla} Days SLA)"
+                if diff_c < 0:
+                    trade_info += f", saving ₹{abs(diff_c):.2f}"
+                elif diff_c > 0:
+                    trade_info += f", +₹{diff_c:.2f} vs baseline"
+                decision_reason = f"Selected your preferred carrier '{selected_quote.courier_name}'. Fully serviceable for this route {trade_info}."
             else:
-                selected_quote = baseline_q
-                mode_reason = f"No other eligible couriers available for this route. {baseline_q.courier_name} remains the only viable carrier."
+                # Requested carrier is not in eligible candidates; check unserviceable reasons
+                unsvc_matches = [
+                    q for q in unserviceable
+                    if pref_norm in q.courier_code.lower() or pref_norm in (q.courier_name or "").lower()
+                ]
+                if unsvc_matches:
+                    u = unsvc_matches[0]
+                    reason = u.unserviceable_reason or "; ".join(u.eligibility_reasons or []) or "Unserviceable for this route."
+                    pref_applied_label = f"Preferred Carrier: {u.courier_name} (Unavailable)"
+                    decision_reason = f"Requested courier '{u.courier_name}' cannot be recommended because it is unserviceable or excluded ({reason}). Recommending best eligible alternative."
+                else:
+                    pref_applied_label = f"Preferred Carrier: {pref_carrier} (Unavailable)"
+                    decision_reason = f"Requested carrier '{pref_carrier}' is not available for this route. Recommending best eligible alternative."
 
-        else:
-            # Default: Balanced mode (composite 60% cost, 40% speed)
-            pref_applied_label = "Balanced Cost & Speed"
-            min_c = min((q.cost_breakdown.total_cost for q in eligible if q.cost_breakdown), default=1.0)
-            max_c = max((q.cost_breakdown.total_cost for q in eligible if q.cost_breakdown), default=min_c + 1.0)
-            min_d = min((q.estimated_delivery_days or 3 for q in eligible), default=1)
-            max_d = max((q.estimated_delivery_days or 3 for q in eligible), default=min_d + 1)
-            c_span = max(max_c - min_c, 1.0)
-            d_span = max(max_d - min_d, 1)
-
-            def score_q(q: CourierQuote) -> float:
-                cost_norm = ((q.cost_breakdown.total_cost if q.cost_breakdown else max_c) - min_c) / c_span
-                speed_norm = ((q.estimated_delivery_days or max_d) - min_d) / d_span
-                return 0.6 * cost_norm + 0.4 * speed_norm
-
-            sorted_balanced = sorted(eligible, key=score_q)
-            if exclude_current_winner and len(sorted_balanced) > 1 and sorted_balanced[0].quote_id == current_winner_id:
-                selected_quote = sorted_balanced[1]
-            else:
+                # Fall back to best eligible alternative using balanced composite scoring
+                sorted_balanced = sorted(eligible, key=score_q)
                 selected_quote = sorted_balanced[0]
+                cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
+                sla = selected_quote.estimated_delivery_days or 3
+                decision_reason += f" Showing {selected_quote.courier_name} at ₹{cost:.2f} ({sla} Days SLA)."
+        else:
+            pref_applied_label = "Preferred Courier"
+            decision_reason = "No preferred carrier specified. Recommending best balanced alternative."
+            sorted_balanced = sorted(eligible, key=score_q)
+            selected_quote = sorted_balanced[0]
 
+    # Preference Mode 2: Lowest Shipping Cost
+    elif mode == "lowest_cost":
+        pref_applied_label = "Lowest Shipping Cost"
+        sorted_by_cost = sorted(
+            eligible,
+            key=lambda q: (q.cost_breakdown.total_cost if q.cost_breakdown else 9999.0, q.estimated_delivery_days or 99)
+        )
+        selected_quote = sorted_by_cost[0]
+        cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
+        sla = selected_quote.estimated_delivery_days or 3
+        if selected_quote.quote_id == baseline_q.quote_id:
+            decision_reason = f"Current recommendation is already the lowest cost option available (₹{cost:.2f}, {sla} Days SLA)."
+        else:
+            diff_c = round(cost - base_cost, 2)
+            diff_d = (sla - base_days) if sla is not None and base_days is not None else 0
+            trade_detail = f"Saves ₹{abs(diff_c):.2f}" if diff_c < 0 else f"Cost: ₹{cost:.2f}"
+            if diff_d > 0:
+                trade_detail += f" with {diff_d} day(s) longer transit."
+            elif diff_d < 0:
+                trade_detail += f" and delivers {abs(diff_d)} day(s) faster."
+            decision_reason = f"Prioritizes shipping savings: Lowest landed freight cost at ₹{cost:.2f} (SLA: {sla} Days). {trade_detail}"
+
+    # Preference Mode 3: Fastest Delivery
+    elif mode == "fastest":
+        pref_applied_label = "Fastest Delivery"
+        sorted_by_speed = sorted(
+            eligible,
+            key=lambda q: (q.estimated_delivery_days or 99, q.cost_breakdown.total_cost if q.cost_breakdown else 9999.0)
+        )
+        selected_quote = sorted_by_speed[0]
+        cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
+        sla = selected_quote.estimated_delivery_days or 1
+        if selected_quote.quote_id == baseline_q.quote_id:
+            decision_reason = f"Current recommendation is already the fastest delivery option available ({sla} Days SLA at ₹{cost:.2f})."
+        else:
+            diff_c = round(cost - base_cost, 2)
+            diff_d = (sla - base_days) if sla is not None and base_days is not None else 0
+            trade_detail = f"Delivers {abs(diff_d)} day(s) faster" if diff_d < 0 else f"{sla} Days SLA"
+            if diff_c > 0:
+                trade_detail += f" for an additional ₹{diff_c:.2f} freight."
+            elif diff_c < 0:
+                trade_detail += f" while saving ₹{abs(diff_c):.2f} freight."
+            decision_reason = f"Prioritizes transit speed: {selected_quote.courier_name} with {sla} Days SLA (₹{cost:.2f}). {trade_detail}"
+
+    # Preference Mode 4: Next Best Alternative
+    elif mode in ("next_best", "reject"):
+        pref_applied_label = "Next Best Alternative"
+        remaining = [q for q in eligible if q.quote_id != current_winner_id]
+        if remaining:
+            sorted_remaining = sorted(remaining, key=score_q)
+            selected_quote = sorted_remaining[0]
             cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
             sla = selected_quote.estimated_delivery_days or 3
-            mode_reason = f"Balanced trade-off between transit speed ({sla} Days) and landed freight cost (₹{cost:.2f})."
-
-        if pref_notice:
-            decision_reason = f"{pref_notice} {mode_reason}"
+            diff_c = round(cost - base_cost, 2)
+            diff_d = (sla - base_days) if sla is not None and base_days is not None else 0
+            trade_detail = f"₹{cost:.2f} ({sla} Days SLA)"
+            if diff_c < 0:
+                trade_detail += f", saving ₹{abs(diff_c):.2f}"
+            elif diff_c > 0:
+                trade_detail += f", +₹{diff_c:.2f}"
+            decision_reason = f"Next best eligible alternative excluding current selection: {selected_quote.courier_name} at {trade_detail}."
         else:
-            decision_reason = mode_reason
+            selected_quote = baseline_q
+            cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
+            decision_reason = f"No other eligible couriers available for this route. {baseline_q.courier_name} remains the only viable carrier at ₹{cost:.2f}."
+
+    # Preference Mode 5: Balanced Cost & Speed (Default composite scoring)
+    else:
+        pref_applied_label = "Balanced Cost & Speed"
+        sorted_balanced = sorted(eligible, key=score_q)
+        if exclude_current_winner and len(sorted_balanced) > 1 and sorted_balanced[0].quote_id == current_winner_id:
+            selected_quote = sorted_balanced[1]
+        else:
+            selected_quote = sorted_balanced[0]
+
+        cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
+        sla = selected_quote.estimated_delivery_days or 3
+        decision_reason = f"Balanced trade-off between transit speed ({sla} Days) and landed freight cost (₹{cost:.2f})."
 
     # Fallback safety
     if selected_quote is None:

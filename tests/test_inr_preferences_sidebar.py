@@ -403,3 +403,44 @@ class TestLeftNavigationSidebar:
 
         assert panel.find(id="btnApplyAltPreference") is not None
         assert panel.find(id="selPreferredCourier") is not None
+
+    def test_api_quotes_hydration_from_request_body(self, client, sample_test_quotes):
+        """When cache or DB has no quotes, payload quotes must be hydrated and evaluated."""
+        quote_dicts = [q.model_dump() for q in sample_test_quotes]
+        res = client.post(
+            "/api/recommendations/alternative",
+            json={
+                "order_reference": "ORDER-STATELESS-COLD-START",
+                "current_recommended_quote_id": "Q-BD-AIR",
+                "preference_mode": "lowest_cost",
+                "quotes": quote_dicts,
+            },
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["status"] == "SUCCESS"
+        assert data["selected_quote_id"] == "Q-IP-PARCEL"
+        assert data["alternative_result"]["selected_recommendation"]["courier_name"] == "India Post Parcel (Simulated)"
+
+    def test_persistent_layout_css_rules_in_style_css(self):
+        """Verify CSS contains the locked layout, sticky header, and independent scroll containers."""
+        with open("static/css/style.css", "r", encoding="utf-8") as f:
+            css = f.read()
+
+        # HTML/Body locked
+        assert "overflow: hidden" in css
+        # App Header pinned
+        assert ".app-header" in css
+        assert "z-index: 100" in css
+        # App layout flex container
+        assert ".app-layout" in css
+        # Sidebar locked height and independent scroll
+        assert ".app-sidebar" in css
+        assert "overflow-y: auto" in css
+        # Main container independent scroll
+        assert ".main-container" in css
+        assert "height: 100%" in css
+        # Mobile drawer stacking
+        assert "z-index: 950" in css
+        assert "z-index: 900" in css
+

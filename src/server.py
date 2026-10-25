@@ -468,6 +468,7 @@ class AlternativeRecommendationRequest(BaseModel):
     max_budget: Optional[float] = None
     max_delivery_days: Optional[int] = None
     exclude_current: bool = True
+    quotes: Optional[list[dict[str, Any]]] = None
 
 
 @app.post("/api/recommendations/alternative")
@@ -486,6 +487,14 @@ def get_alternative_recommendation_endpoint(req: AlternativeRecommendationReques
         )
 
     quotes = _ACTIVE_QUOTES_CACHE.get(req.order_reference)
+    if not quotes and req.quotes:
+        quotes = []
+        for q_data in req.quotes:
+            try:
+                quotes.append(CourierQuote.model_validate(q_data))
+            except Exception:
+                pass
+
     if not quotes:
         db_quotes_data = db_manager.get_quotes_for_order(req.order_reference)
         quotes = []
@@ -520,7 +529,7 @@ def get_alternative_recommendation_endpoint(req: AlternativeRecommendationReques
     return {
         "status": "SUCCESS",
         "order_reference": req.order_reference,
-        "preference_mode": req.preference_mode,
+        "preference_mode": cleaned_mode,
         "selected_quote_id": new_quote_id,
         "alternative_result": alt_result.model_dump(),
         "approval_invalidated": alt_result.is_switched,
@@ -531,11 +540,6 @@ def get_alternative_recommendation_endpoint(req: AlternativeRecommendationReques
         ),
     }
 
-
-
-# -----------------------------------------------------------------------------
-# 10 Evaluator Edge-Case Scenarios (Demo A through Demo J)
-# -----------------------------------------------------------------------------
 
 @app.get("/api/scenarios")
 def list_scenarios() -> list[dict[str, Any]]:
@@ -611,69 +615,6 @@ def load_scenario(scenario_id: str) -> dict[str, Any]:
         "decision_provenance": getattr(ranking, "decision_provenance", {}),
     }
 
-
-class AlternativeRecommendationRequest(BaseModel):
-    order_reference: str
-    current_recommended_quote_id: Optional[str] = None
-    preference_mode: str = "balanced"  # lowest_cost, fastest, balanced, preferred_courier, next_best
-    preferred_courier: Optional[str] = None
-    max_budget: Optional[float] = None
-    max_delivery_days: Optional[int] = None
-    exclude_current: bool = True
-
-
-@app.post("/api/recommendations/alternative")
-def get_alternative_recommendation_endpoint(req: AlternativeRecommendationRequest) -> dict[str, Any]:
-    """
-    Generate an alternative courier recommendation under requested user preference
-    (Lowest cost, Fastest delivery, Balanced, or Preferred carrier).
-    Recalculates ranking and invalidates any downstream approval state.
-    """
-    quotes = _ACTIVE_QUOTES_CACHE.get(req.order_reference)
-    if not quotes:
-        db_quotes_data = db_manager.get_quotes_for_order(req.order_reference)
-        quotes = []
-        for row in db_quotes_data:
-            if row.get("quote_data_json"):
-                try:
-                    quotes.append(CourierQuote.model_validate_json(row["quote_data_json"]))
-                except Exception:
-                    pass
-
-    if not quotes:
-        raise HTTPException(status_code=404, detail=f"No quotes found for order '{req.order_reference}'.")
-
-    from src.domain.advisor import find_alternative_recommendations
-
-    alt_result = find_alternative_recommendations(
-        quotes=quotes,
-        current_winner_id=req.current_recommended_quote_id,
-        preference_mode=req.preference_mode,
-        preferred_courier=req.preferred_courier,
-        max_budget=req.max_budget,
-        max_delivery_days=req.max_delivery_days,
-        exclude_current_winner=req.exclude_current,
-    )
-
-    new_quote_id = (
-        alt_result.selected_recommendation.quote_id
-        if alt_result.selected_recommendation
-        else None
-    )
-
-    return {
-        "status": "SUCCESS",
-        "order_reference": req.order_reference,
-        "preference_mode": req.preference_mode,
-        "selected_quote_id": new_quote_id,
-        "alternative_result": alt_result.model_dump(),
-        "approval_invalidated": alt_result.is_switched,
-        "notice": (
-            "Recommendation updated. Renewed operator approval is required before booking dispatch."
-            if alt_result.is_switched
-            else "Current recommendation retained."
-        ),
-    }
 
 
 
@@ -1140,69 +1081,6 @@ def calculate_rates(req: RateRequest) -> dict[str, Any]:
         "decision_provenance": getattr(ranking, "decision_provenance", {}),
     }
 
-
-class AlternativeRecommendationRequest(BaseModel):
-    order_reference: str
-    current_recommended_quote_id: Optional[str] = None
-    preference_mode: str = "balanced"  # lowest_cost, fastest, balanced, preferred_courier, next_best
-    preferred_courier: Optional[str] = None
-    max_budget: Optional[float] = None
-    max_delivery_days: Optional[int] = None
-    exclude_current: bool = True
-
-
-@app.post("/api/recommendations/alternative")
-def get_alternative_recommendation_endpoint(req: AlternativeRecommendationRequest) -> dict[str, Any]:
-    """
-    Generate an alternative courier recommendation under requested user preference
-    (Lowest cost, Fastest delivery, Balanced, or Preferred carrier).
-    Recalculates ranking and invalidates any downstream approval state.
-    """
-    quotes = _ACTIVE_QUOTES_CACHE.get(req.order_reference)
-    if not quotes:
-        db_quotes_data = db_manager.get_quotes_for_order(req.order_reference)
-        quotes = []
-        for row in db_quotes_data:
-            if row.get("quote_data_json"):
-                try:
-                    quotes.append(CourierQuote.model_validate_json(row["quote_data_json"]))
-                except Exception:
-                    pass
-
-    if not quotes:
-        raise HTTPException(status_code=404, detail=f"No quotes found for order '{req.order_reference}'.")
-
-    from src.domain.advisor import find_alternative_recommendations
-
-    alt_result = find_alternative_recommendations(
-        quotes=quotes,
-        current_winner_id=req.current_recommended_quote_id,
-        preference_mode=req.preference_mode,
-        preferred_courier=req.preferred_courier,
-        max_budget=req.max_budget,
-        max_delivery_days=req.max_delivery_days,
-        exclude_current_winner=req.exclude_current,
-    )
-
-    new_quote_id = (
-        alt_result.selected_recommendation.quote_id
-        if alt_result.selected_recommendation
-        else None
-    )
-
-    return {
-        "status": "SUCCESS",
-        "order_reference": req.order_reference,
-        "preference_mode": req.preference_mode,
-        "selected_quote_id": new_quote_id,
-        "alternative_result": alt_result.model_dump(),
-        "approval_invalidated": alt_result.is_switched,
-        "notice": (
-            "Recommendation updated. Renewed operator approval is required before booking dispatch."
-            if alt_result.is_switched
-            else "Current recommendation retained."
-        ),
-    }
 
 
 

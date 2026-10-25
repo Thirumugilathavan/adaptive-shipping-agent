@@ -1966,7 +1966,7 @@ window.closeDashboardExportModal = function() {
 };
 
 // -----------------------------------------------------------------------------
-// Interactive Alternative Recommendations (Requirement 1)
+// Interactive Alternative Recommendations (All 5 Preferences Supported)
 // -----------------------------------------------------------------------------
 
 let currentAltPreference = 'lowest_cost';
@@ -1977,7 +1977,9 @@ function setupAlternativeRecommendations() {
     elements.btnToggleAltRecommendations.addEventListener('click', () => {
       elements.altRecommendationsPanel.classList.toggle('hidden');
       if (!elements.altRecommendationsPanel.classList.contains('hidden')) {
-        const preferred = elements.selPreferredCourier ? elements.selPreferredCourier.value : null;
+        const preferred = (currentAltPreference === 'preferred_courier' && elements.selPreferredCourier) 
+          ? elements.selPreferredCourier.value 
+          : null;
         fetchAndRenderAlternativeRecommendations(currentAltPreference, preferred, false);
       }
     });
@@ -1996,13 +1998,21 @@ function setupAlternativeRecommendations() {
       btn.classList.add('active');
       currentAltPreference = btn.getAttribute('data-pref');
 
-      // If preferred_courier clicked and no carrier chosen, prompt user
-      if (currentAltPreference === 'preferred_courier' && elements.selPreferredCourier && !elements.selPreferredCourier.value) {
-        elements.selPreferredCourier.focus();
+      let preferredCarrier = null;
+      if (currentAltPreference === 'preferred_courier') {
+        if (elements.selPreferredCourier && !elements.selPreferredCourier.value) {
+          elements.selPreferredCourier.focus();
+        } else if (elements.selPreferredCourier) {
+          preferredCarrier = elements.selPreferredCourier.value;
+        }
+      } else {
+        // If user explicitly chose another mode, clear carrier select so it doesn't conflict
+        if (elements.selPreferredCourier) {
+          elements.selPreferredCourier.value = '';
+        }
       }
 
-      const preferred = elements.selPreferredCourier ? elements.selPreferredCourier.value : null;
-      fetchAndRenderAlternativeRecommendations(currentAltPreference, preferred, false);
+      fetchAndRenderAlternativeRecommendations(currentAltPreference, preferredCarrier, false);
     });
   });
 
@@ -2037,25 +2047,19 @@ async function applyPreferenceWorkflow() {
     return;
   }
 
-  let prefMode = currentAltPreference || 'balanced';
-  const preferredVal = elements.selPreferredCourier ? elements.selPreferredCourier.value : '';
+  const prefMode = currentAltPreference || 'balanced';
+  let preferredVal = null;
 
-  // If user selected a carrier in dropdown, ensure mode is preferred_courier
-  if (preferredVal && prefMode !== 'preferred_courier') {
-    prefMode = 'preferred_courier';
-    currentAltPreference = 'preferred_courier';
-    document.querySelectorAll('.btn-pref-chip').forEach(b => {
-      b.classList.toggle('active', b.getAttribute('data-pref') === 'preferred_courier');
-    });
-  }
-
-  if (prefMode === 'preferred_courier' && !preferredVal) {
-    if (elements.altResultNotice) {
-      elements.altResultNotice.textContent = 'Please choose a carrier from the dropdown to apply Preferred Courier preference.';
-      if (elements.altRecResultContainer) elements.altRecResultContainer.classList.remove('hidden');
+  if (prefMode === 'preferred_courier') {
+    preferredVal = elements.selPreferredCourier ? elements.selPreferredCourier.value.trim() : '';
+    if (!preferredVal) {
+      if (elements.altResultNotice) {
+        elements.altResultNotice.textContent = 'Please choose a carrier from the dropdown to apply Preferred Courier preference.';
+        if (elements.altRecResultContainer) elements.altRecResultContainer.classList.remove('hidden');
+      }
+      if (elements.selPreferredCourier) elements.selPreferredCourier.focus();
+      return;
     }
-    if (elements.selPreferredCourier) elements.selPreferredCourier.focus();
-    return;
   }
 
   // Apply with loading state and duplicate prevention
@@ -2080,8 +2084,9 @@ async function fetchAndRenderAlternativeRecommendations(prefMode, preferredCouri
       order_reference: state.activeOrder.order_reference,
       current_recommended_quote_id: state.selectedQuoteId,
       preference_mode: prefMode || 'balanced',
-      preferred_courier: preferredCourier || null,
-      exclude_current: true,
+      preferred_courier: (prefMode === 'preferred_courier') ? (preferredCourier || null) : null,
+      exclude_current: (prefMode === 'next_best'),
+      quotes: state.activeQuotes || [],
     };
 
     const res = await fetch('/api/recommendations/alternative', {
@@ -2120,7 +2125,7 @@ async function fetchAndRenderAlternativeRecommendations(prefMode, preferredCouri
       const selectedAlt = altRes.selected_recommendation;
       const newQuoteId = selectedAlt.quote_id;
 
-      // 1. Update active selected quote
+      // 1. Update active selected quote in state and rates table
       state.selectedQuoteId = newQuoteId;
       selectCourier(newQuoteId);
 
@@ -2131,25 +2136,50 @@ async function fetchAndRenderAlternativeRecommendations(prefMode, preferredCouri
       if (elements.advWinningSla) elements.advWinningSla.textContent = `${selectedAlt.estimated_delivery_days || '--'} Days SLA`;
       if (elements.recTurnaroundTime) elements.recTurnaroundTime.textContent = `${selectedAlt.estimated_delivery_days || '--'} Business Days`;
 
-      // 3. Synchronize Explanation
+      // 3. Synchronize Explanation & Key Factors
       if (elements.advExplanation) {
         elements.advExplanation.textContent = altRes.decision_explanation;
       }
+      if (elements.advWinnerReasonsList) {
+        elements.advWinnerReasonsList.innerHTML = `
+          <li>${altRes.decision_explanation}</li>
+          <li>Active selection: ${selectedAlt.courier_name} (${selectedAlt.service_type}) at ${formatINR(selectedAlt.total_cost)}.</li>
+        `;
+      }
 
-      // 4. Invalidate operator approval
+      // 4. Synchronize Trade-off Box
+      if (elements.advTradeoffBox) {
+        elements.advTradeoffBox.classList.remove('hidden');
+        if (elements.advTradeoffText) elements.advTradeoffText.textContent = altRes.tradeoff_summary || altRes.decision_explanation;
+        if (elements.advTradeoffList) {
+          elements.advTradeoffList.innerHTML = '';
+          (altRes.eligible_alternatives || []).slice(0, 3).forEach(c => {
+            const li = document.createElement('li');
+            li.textContent = `${c.courier_name} (${c.service_type}): ${formatINR(c.total_cost)} - ${c.tradeoff_explanation}`;
+            elements.advTradeoffList.appendChild(li);
+          });
+        }
+      }
+
+      // 5. Invalidate operator approval
       if (elements.chkOperatorConfirm) elements.chkOperatorConfirm.checked = false;
       if (elements.btnApproveDispatch) elements.btnApproveDispatch.disabled = true;
       state.isApprovalGranted = false;
-
-      // 5. Update notice with renewed operator confirmation requirement
-      if (elements.altResultNotice) {
-        elements.altResultNotice.textContent = `Applied: ${altRes.decision_explanation} Note: Renewed operator confirmation is required before booking.`;
+      const statusBadge = document.getElementById('approvalStatusBadge');
+      if (statusBadge) {
+        statusBadge.className = 'status-badge status-pending';
+        statusBadge.textContent = 'Pending Approval';
       }
 
-      // 6. Synchronize ML Benchmark comparison for the new selected quote
+      // 6. Update notice with renewed operator confirmation requirement
+      if (elements.altResultNotice) {
+        elements.altResultNotice.textContent = `Applied: ${selectedAlt.courier_name} (${formatINR(selectedAlt.total_cost)}). Note: Renewed operator confirmation is required before booking.`;
+      }
+
+      // 7. Synchronize ML Benchmark comparison for the new selected quote
       await fetchAndRenderMlPrediction();
 
-      // 7. Refresh candidate list to reflect new selected quote
+      // 8. Refresh candidate list to reflect new selected quote
       renderAlternativeCandidates(altRes);
     }
 
@@ -2199,28 +2229,39 @@ function renderAlternativeCandidates(altRes) {
 }
 
 window.applyAlternativeQuote = async function(quoteId) {
+  state.selectedQuoteId = quoteId;
   selectCourier(quoteId);
 
   // Invalidate operator approval
   if (elements.chkOperatorConfirm) elements.chkOperatorConfirm.checked = false;
   if (elements.btnApproveDispatch) elements.btnApproveDispatch.disabled = true;
   state.isApprovalGranted = false;
+  const statusBadge = document.getElementById('approvalStatusBadge');
+  if (statusBadge) {
+    statusBadge.className = 'status-badge status-pending';
+    statusBadge.textContent = 'Pending Approval';
+  }
 
   // Find quote in active quotes to update Recommended Courier card
   const quote = state.activeQuotes.find(q => q.quote_id === quoteId);
   if (quote) {
     if (elements.advCourierName) elements.advCourierName.textContent = quote.courier_name;
     if (elements.advServiceTypeBadge) elements.advServiceTypeBadge.textContent = quote.service_type || 'Standard Service';
-    if (elements.advWinningCost) elements.advWinningCost.textContent = formatINR(extractQuotePrice(quote));
+    const quotePrice = extractQuotePrice(quote);
+    if (elements.advWinningCost) elements.advWinningCost.textContent = formatINR(quotePrice);
     if (elements.advWinningSla) elements.advWinningSla.textContent = `${quote.estimated_delivery_days || '--'} Days SLA`;
     if (elements.recTurnaroundTime) elements.recTurnaroundTime.textContent = `${quote.estimated_delivery_days || '--'} Business Days`;
+
+    if (elements.advExplanation) {
+      elements.advExplanation.textContent = `Manually selected ${quote.courier_name} (${quote.service_type}) at ${formatINR(quotePrice)} (${quote.estimated_delivery_days || '--'} Days SLA).`;
+    }
   }
 
   if (elements.altResultNotice) {
     elements.altResultNotice.textContent = `Switched to ${quote ? quote.courier_name : quoteId}. Renewed operator confirmation is required.`;
   }
 
-  // Update candidates cards
+  // Update candidate cards UI
   document.querySelectorAll('.alt-candidate-card').forEach(card => {
     const btn = card.querySelector('button');
     if (btn && btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(quoteId)) {
