@@ -142,6 +142,30 @@ CREATE TABLE IF NOT EXISTS courier_capabilities (
 
 CREATE INDEX IF NOT EXISTS idx_capabilities_code ON courier_capabilities(courier_code);
 
+CREATE TABLE IF NOT EXISTS quote_field_provenance (
+    provenance_id TEXT PRIMARY KEY,
+    quote_id TEXT NOT NULL,
+    order_reference TEXT NOT NULL,
+    field_name TEXT NOT NULL,
+    extracted_value TEXT NOT NULL,
+    raw_value TEXT,
+    source_type TEXT NOT NULL,
+    source_identifier TEXT NOT NULL,
+    source_url_or_endpoint TEXT,
+    retrieval_timestamp TEXT NOT NULL,
+    retrieval_method TEXT NOT NULL,
+    request_or_shipment_id TEXT,
+    raw_snapshot_json TEXT,
+    validation_status TEXT NOT NULL,
+    transformation_applied TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (quote_id) REFERENCES quotes (quote_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_provenance_quote ON quote_field_provenance(quote_id);
+CREATE INDEX IF NOT EXISTS idx_provenance_order ON quote_field_provenance(order_reference);
+CREATE INDEX IF NOT EXISTS idx_provenance_field ON quote_field_provenance(field_name);
+
 """
 
 
@@ -188,7 +212,7 @@ class DatabaseManager:
         self.seed_default_courier_capabilities()
 
     def migrate_schema(self) -> None:
-        """Safely alter existing database tables if missing newly introduced columns."""
+        """Safely alter existing database tables if missing newly introduced columns or tables."""
         with self.connection() as conn:
             shipments_cols = {row["name"] for row in conn.execute("PRAGMA table_info(shipments)").fetchall()}
             if shipments_cols:
@@ -196,6 +220,30 @@ class DatabaseManager:
                     conn.execute("ALTER TABLE shipments ADD COLUMN label_status TEXT NOT NULL DEFAULT 'UNSUPPORTED'")
                 if "label_data" not in shipments_cols:
                     conn.execute("ALTER TABLE shipments ADD COLUMN label_data TEXT")
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS quote_field_provenance (
+                provenance_id TEXT PRIMARY KEY,
+                quote_id TEXT NOT NULL,
+                order_reference TEXT NOT NULL,
+                field_name TEXT NOT NULL,
+                extracted_value TEXT NOT NULL,
+                raw_value TEXT,
+                source_type TEXT NOT NULL,
+                source_identifier TEXT NOT NULL,
+                source_url_or_endpoint TEXT,
+                retrieval_timestamp TEXT NOT NULL,
+                retrieval_method TEXT NOT NULL,
+                request_or_shipment_id TEXT,
+                raw_snapshot_json TEXT,
+                validation_status TEXT NOT NULL,
+                transformation_applied TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (quote_id) REFERENCES quotes (quote_id) ON DELETE CASCADE
+            );
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_provenance_quote ON quote_field_provenance(quote_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_provenance_order ON quote_field_provenance(order_reference);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_provenance_field ON quote_field_provenance(field_name);")
 
     def insert_order(self, order_data: dict[str, Any]) -> None:
         """Insert or update a validated order record without risking cascade deletes."""
@@ -286,9 +334,15 @@ class DatabaseManager:
             conn.executemany(sql, quotes)
 
     def save_quote_model(self, quote: Any, order_reference: str) -> str:
-        """Persist or update a CourierQuote model into SQLite."""
+        """Persist or update a CourierQuote model into SQLite including field provenance."""
         now_iso = datetime.now(timezone.utc).isoformat()
         total_c = quote.cost_breakdown.total_cost if quote.cost_breakdown else 0.0
+
+        # Ensure field provenance is populated
+        if hasattr(quote, "populate_standard_field_provenance"):
+            if not getattr(quote, "field_provenance", None):
+                quote.populate_standard_field_provenance(order_reference)
+
         q_json = quote.model_dump_json() if hasattr(quote, "model_dump_json") else json.dumps(quote)
         self.insert_quotes([
             {
@@ -305,7 +359,77 @@ class DatabaseManager:
                 "created_at": now_iso,
             }
         ])
+
+        # Persist field-level provenance records
+        field_prov_records = []
+        raw_snap_json = json.dumps(quote.raw_response_snapshot) if getattr(quote, "raw_response_snapshot", None) else None
+        if hasattr(quote, "field_provenance") and quote.field_provenance:
+            for f_name, prec in quote.field_provenance.items():
+                p_id = f"{quote.quote_id}:{f_name}"
+                field_prov_records.append({
+                    "provenance_id": p_id,
+                    "quote_id": quote.quote_id,
+                    "order_reference": order_reference,
+                    "field_name": f_name,
+                    "extracted_value": str(prec.extracted_value),
+                    "raw_value": str(prec.raw_value) if prec.raw_value is not None else str(prec.extracted_value),
+                    "source_type": prec.source_type,
+                    "source_identifier": prec.source_identifier,
+                    "source_url_or_endpoint": prec.source_url_or_endpoint,
+                    "retrieval_timestamp": prec.retrieval_timestamp,
+                    "retrieval_method": prec.retrieval_method,
+                    "request_or_shipment_id": prec.request_or_shipment_id or order_reference,
+                    "raw_snapshot_json": raw_snap_json,
+                    "validation_status": prec.validation_status,
+                    "transformation_applied": prec.transformation_applied,
+                    "created_at": now_iso,
+                })
+            self.insert_field_provenance(field_prov_records)
+
         return quote.quote_id
+
+    def insert_field_provenance(self, records: list[dict[str, Any]]) -> None:
+        """Insert or replace field-level provenance audit records."""
+        if not records:
+            return
+        sql = """
+        INSERT OR REPLACE INTO quote_field_provenance (
+            provenance_id, quote_id, order_reference, field_name,
+            extracted_value, raw_value, source_type, source_identifier,
+            source_url_or_endpoint, retrieval_timestamp, retrieval_method,
+            request_or_shipment_id, raw_snapshot_json, validation_status,
+            transformation_applied, created_at
+        ) VALUES (
+            :provenance_id, :quote_id, :order_reference, :field_name,
+            :extracted_value, :raw_value, :source_type, :source_identifier,
+            :source_url_or_endpoint, :retrieval_timestamp, :retrieval_method,
+            :request_or_shipment_id, :raw_snapshot_json, :validation_status,
+            :transformation_applied, :created_at
+        )
+        """
+        with self.connection() as conn:
+            conn.executemany(sql, records)
+
+    def get_field_provenance_for_quote(self, quote_id: str) -> list[dict[str, Any]]:
+        """Retrieve all field-level provenance records for a given quote."""
+        sql = "SELECT * FROM quote_field_provenance WHERE quote_id = ? ORDER BY field_name ASC"
+        with self.connection() as conn:
+            rows = conn.execute(sql, (quote_id,)).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_field_provenance_for_order(self, order_reference: str) -> list[dict[str, Any]]:
+        """Retrieve all field-level provenance records for a given order reference."""
+        sql = "SELECT * FROM quote_field_provenance WHERE order_reference = ? ORDER BY quote_id ASC, field_name ASC"
+        with self.connection() as conn:
+            rows = conn.execute(sql, (order_reference,)).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_quote(self, quote_id: str) -> Optional[dict[str, Any]]:
+        """Retrieve a specific quote record by quote_id."""
+        sql = "SELECT * FROM quotes WHERE quote_id = ?"
+        with self.connection() as conn:
+            row = conn.execute(sql, (quote_id,)).fetchone()
+            return dict(row) if row else None
 
     def ensure_parent_records(
         self,

@@ -2,7 +2,7 @@
 > **Autonomous, Constraint-Aware Logistics Decision Support & Execution Gate Engine**  
 > *Category:* Business & Productivity AI — ZiroDigital Agentic AI Hackathon 2026  
 > *Live Entrypoint:* `python app.py` (FastAPI backend + Modern HTML/CSS/JS frontend on `http://localhost:8000`)  
-> *Test Suite:* `pytest tests/` (318/319 Passing, 1 opt-in live test skipped) | `python run_official_scenarios.py` (4/4 Passing)
+> *Test Suite:* `pytest tests/` (322/322 Passing) | `python run_official_scenarios.py` (4/4 Passing)
 
 ---
 
@@ -17,6 +17,7 @@ E-commerce merchants and warehouse logistics managers face substantial margin le
 The **Adaptive Shipping Intelligence Agent** solves these challenges by combining:
 - **Autonomous 6-Orientation Packaging Optimization:** Evaluates 3D rotational fits against standard and user-defined custom boxes, calculating exact volumetric savings.
 - **Local Multi-Courier Simulation & ML Intelligence:** 100% offline deterministic courier network with integrated Model 1 and Model 2 (CatBoost) machine-learning pricing and turnaround benchmarks.
+- **Local Courier Sandbox & Manual Audit Entry:** Completely self-contained offline sandbox simulation and manual dashboard entry without any external network dependencies or API keys.
 - **Explainable Multi-Stage Decision Engine:** Chronologically documents Observation, Constraint Evaluation, Deterministic Ranking, Human Gate Approval, Safe Execution, and Independent 5-Point Verification.
 - **Zero-Drift Safety & Reconciliation:** Enforces idempotency locks, validates timestamp currency (<15m), and blocks blind retries on uncertain dispatch timeouts.
 
@@ -46,18 +47,49 @@ To validate the agentic capability against conventional shipping calculators (wh
 
 ---
 
-## 3. Shipping Provider Modes: Local Simulation & Manual Sandbox Entry
+## 3. Shipping Provider Modes: Local Simulation & Offline Sandbox
 
-The application operates 100% locally and offline without external API dependencies:
+The application operates 100% locally and offline without any external API calls, credentials, or network dependencies:
 
-### Mode 1: Deterministic Multi-Courier Simulator (Default)
+```mermaid
+flowchart TD
+    subgraph UI ["User Interface / Provider Selector"]
+        M1["Mode 1: Local Demo (Default)"]
+        M2["Mode 2: Local Courier Sandbox (Simulation)"]
+        M3["Mode 3: Manual Sandbox Entry"]
+    end
+
+    subgraph Adapters ["Execution Adapters (100% Offline)"]
+        DA["DemoShippingAdapter<br/>(10 Local Couriers, Offline)"]
+        LSA["LocalSandboxShippingAdapter<br/>(Synthetic Sandbox Engine)"]
+        MSA["Manual Entry Parser<br/>(Operator Dashboard Audit)"]
+    end
+
+    M1 --> DA
+    M2 --> LSA
+    M3 --> MSA
+
+    DA --> ENG["6-Stage Agent Decision Engine<br/>(Model 1 + Model 2 + 3D Packaging + Approval Gate)"]
+    LSA --> ENG
+    MSA --> ENG
+```
+
+### Mode 1: Local Demo Mode (`demo` — Default)
 - **Zero API credentials required:** 10 simulated couriers covering Air, Surface, Cargo, and Hyperlocal express delivery.
 - **Realistic fee breakdowns:** Base freight slabs, fuel surcharges, COD handling fees, and GST tax calculations.
 - **Evaluator Scenarios:** 10 one-click benchmark scenarios (`Demo A` through `Demo J`) and 4 official test cases (`TC1` through `TC4`).
+- **Complete Offline Privacy:** Guaranteed zero external network traffic. Discloses quotes with `[DEMO DATA]` badges and synthetic `DEMO-TRK-` waybills.
 
-### Mode 2: Manual Sandbox Dashboard Entry
-- **Carrier Sandbox Verification:** Allows operators to manually enter verified rates and tracking numbers from carrier sandbox dashboards for real-world validation.
-- **Strict Offline Privacy:** No external HTTP calls, no telemetry, no credentials required, and zero network risk. All state and audit logs persist locally in SQLite.
+### Mode 2: Local Courier Sandbox (Simulation) (`sandbox`)
+- **Self-Contained Sandbox Simulation:** Fully offline sandbox test environment using deterministic synthetic carrier quotes and simulated lifecycle states.
+- **Synthetic AWB & Label Output:** Generates clearly marked synthetic `SBX-TRK-` tracking numbers, `SBX-PKP-` pickup confirmations, and local PDF shipping labels with prominent sandbox watermarks.
+- **Provenance Disclosure:** Tagged with `source_type: "LOCAL_SANDBOX"`, explicitly indicating simulated test data.
+- **Safe & Predictable:** Requires zero API keys or tokens. Never calls external courier networks or creates live carrier commitments.
+
+### Mode 3: Manual Sandbox Dashboard Entry (`manual_sandbox`)
+- **Operator Dashboard Entry:** Allows operators to manually enter verified rates, fuel surcharges, tax amounts, and tracking references copied from external courier sandbox portals (e.g. Delhivery, Shiprocket, BlueDart, India Post).
+- **Audit Labeling:** Explicitly labeled as **Manual Entry — Not API Verified** to ensure operators never mistake manually transcribed rates for real-time live carrier API quotes.
+- **Integrated Decision Pipeline:** Once entered, manual quotes pass through the exact same 6-Stage decision engine, volumetric optimization, human approval gate, and 5-point verification checks.
 
 ---
 
@@ -115,11 +147,17 @@ python app.py
 
 ## 6. Verification & Test Suite
 
-The test suite covers unit logic, provider adapters, state machines, packaging fit, idempotency, ML prediction, and official scenarios:
+The test suite covers unit logic, provider adapters, state machines, packaging fit, idempotency, ML prediction, and official competition scenarios (100% offline):
 
 ```powershell
-# Run the complete test suite (319 tests: 318 passed, 1 skipped)
+# Run the complete test suite (322 tests passing)
 pytest tests/
+
+# Run Provider Adapter & Local Sandbox tests (10 tests)
+pytest tests/test_demo_adapter.py
+
+# Run FastAPI webapp & provider mode API tests (9 tests)
+pytest tests/test_webapp_api.py
 
 # Run the dedicated Machine Learning Price Prediction tests
 pytest tests/test_price_prediction.py
@@ -174,14 +212,19 @@ adaptive-shipping-agent/
 │   │   └── state_machine.py       # Shipment lifecycle FSM & approval gate records
 │   ├── providers/
 │   │   ├── base.py                # CourierProvider abstract base class
-│   │   ├── demo_adapter.py        # Simulated 10-courier provider with label generator
-│   │   └── registry.py            # Local provider registry (Demo adapter)
+│   │   ├── demo_adapter.py        # Simulated 10-courier & Local Sandbox provider
+│   │   └── registry.py            # Offline provider registry (Demo, Sandbox, Manual)
+│   ├── server.py                  # FastAPI server with offline provider mode management
 │   └── ui/
-│       ├── app.py                 # Modern Streamlit logistics dashboard
-│       └── helpers.py             # UI formatting & form parsing pure functions
+│       ├── app.py                 # Logistics dashboard runner
+│       └── helpers.py             # UI formatting, provider badges & pure helpers
+├── static/                        # Frontend UI (HTML5, Modern CSS, Modular Vanilla JS)
+│   ├── index.html                 # Modern single-page app with Provider controls
+│   ├── css/style.css              # Dark Blue / White high-contrast corporate theme
+│   └── js/app.js                  # Async client handling wizard, offline modes, live rates
 ├── tests/
 │   ├── test_custom_packaging.py
-│   ├── test_demo_adapter.py
+│   ├── test_demo_adapter.py       # 10 tests: Provider contract & Local Sandbox execution
 │   ├── test_dimension_engine.py
 │   ├── test_evaluator_scenarios.py
 │   ├── test_freshness_and_reconciliation.py
@@ -198,9 +241,11 @@ adaptive-shipping-agent/
 │   ├── test_simplified_ui_flow.py
 │   ├── test_stress_tester.py
 │   ├── test_ui_helpers.py
+│   ├── test_webapp_api.py         # 9 tests: FastAPI REST endpoints & provider mode switching
 │   ├── test_weight.py
 │   └── test_workflow.py
 ├── run_official_scenarios.py      # Standalone runner for TC1 - TC4
 ├── run_demo.py                    # Standalone CLI demonstration
+├── app.py                         # Application entry point (FastAPI server)
 └── README.md                      # Comprehensive documentation
 ```

@@ -225,11 +225,19 @@ def test_create_shipment_success_contract():
 
 
 def test_provider_registry():
-    """Verify registry loads DemoShippingAdapter and strictly rejects external or unknown provider modes."""
+    """Verify registry loads DemoShippingAdapter, LocalSandboxShippingAdapter, and strictly rejects external/unknown provider modes."""
+    from src.providers.demo_adapter import LocalSandboxShippingAdapter
+
     demo_provider = get_provider("demo")
     assert isinstance(demo_provider, DemoShippingAdapter)
 
-    # Obsolete or external provider modes must be rejected
+    sandbox_provider = get_provider("sandbox")
+    assert isinstance(sandbox_provider, LocalSandboxShippingAdapter)
+
+    local_sbx_provider = get_provider("local_sandbox")
+    assert isinstance(local_sbx_provider, LocalSandboxShippingAdapter)
+
+    # External courier provider modes must be strictly rejected
     with pytest.raises(ValueError, match="Unknown shipping provider mode"):
         get_provider("shipengine")
 
@@ -238,3 +246,57 @@ def test_provider_registry():
 
     with pytest.raises(ValueError, match="Unknown shipping provider mode"):
         get_provider("unsupported_carrier_xyz")
+
+
+def test_local_sandbox_adapter_execution():
+    """Verify LocalSandboxShippingAdapter works 100% offline with synthetic data and clear disclosures."""
+    from src.providers.demo_adapter import LocalSandboxShippingAdapter
+
+    sample_order = create_sample_order()
+    adapter = LocalSandboxShippingAdapter()
+    assert adapter.provider_code == "LOCAL_COURIER_SANDBOX"
+    assert adapter.provider_name == "Local Courier Sandbox (Simulation)"
+    assert adapter.is_demo is True
+
+    # 1. Quotes
+    quotes = adapter.get_rates(sample_order)
+    assert len(quotes) > 0
+    serviceable_quotes = [q for q in quotes if q.is_serviceable]
+    assert len(serviceable_quotes) > 0
+
+    first_q = serviceable_quotes[0]
+    assert first_q.source_type == "LOCAL_SANDBOX"
+    assert first_q.is_demo_data is True
+    assert first_q.quote_id.startswith("QUOTE-SBX-")
+    assert "Sandbox Simulation" in first_q.courier_name
+
+    # 2. Dispatch with approval
+    approval = ApprovalRecord(
+        approved_by="Auditor Test",
+        quote_id=first_q.quote_id,
+        total_cost=first_q.cost_breakdown.total_cost,
+    )
+    shipment = adapter.create_shipment(
+        sample_order,
+        first_q,
+        approval,
+        idempotency_key="IDEM-SBX-001",
+        generate_label=True,
+    )
+    assert shipment.tracking_number.startswith("SBX-TRK-")
+    assert shipment.shipment_id.startswith("SBX-SHP-")
+    assert shipment.is_demo_data is True
+    assert "LOCAL COURIER SANDBOX" in shipment.disclaimer
+
+    # 3. Pickup scheduling
+    pickup = adapter.schedule_pickup(shipment.shipment_id)
+    assert pickup is not None
+    assert pickup.pickup_reference.startswith("SBX-PKP-")
+    assert pickup.status in ("CONFIRMED", "CONFIRMED_SIMULATED")
+    assert pickup.is_demo_data is True
+
+    # 4. Tracking simulation
+    tracking = adapter.get_tracking(shipment.tracking_number)
+    assert tracking.is_demo_data is True
+    assert "LOCAL COURIER SANDBOX" in tracking.disclaimer
+    assert len(tracking.events) >= 3

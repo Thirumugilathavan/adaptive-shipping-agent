@@ -7,9 +7,11 @@ Serves modern HTML/CSS/JS frontend from static directory.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +40,10 @@ from src.domain.evaluator import (
     EvaluatorSuite,
     ScenarioResult,
 )
+from src.domain.official_scenarios import (
+    OfficialScenariosRunner,
+    OfficialTestCaseResult,
+)
 from src.domain.freshness import check_quote_freshness
 from src.domain.label_generator import (
     generate_label_preview_html,
@@ -54,6 +60,7 @@ from src.domain.models import (
     OrderInput,
     PackageType,
     ShipmentStatus,
+    WeightResult,
 )
 from src.domain.packaging import CustomPackaging, evaluate_packaging_alternatives
 from src.domain.pricing import calculate_landed_cost
@@ -80,7 +87,12 @@ from src.persistence.idempotency import (
 from src.persistence.state_machine import ApprovalRecord, ShipmentStateMachine
 from src.providers.base import CourierProvider, ShipmentResult
 from src.providers.demo_adapter import ALL_DEMO_COURIERS, DemoShippingAdapter
-from src.providers.registry import get_provider
+from src.providers.registry import (
+    get_provider,
+    get_active_provider_mode,
+    set_active_provider_mode,
+    get_provider_status,
+)
 from src.schemas.price_prediction import (
     PricePredictionApiRequest,
     PricePredictionApiResponse,
@@ -170,7 +182,7 @@ class RateRequest(BaseModel):
     cod_amount: float = 0.0
 
     ranking_mode: str = "lowest_cost"  # lowest_cost, fastest, balanced
-    provider_mode: str = "demo"  # deterministic local simulation
+    provider_mode: Optional[str] = None  # None defaults to active server provider_mode
     excluded_couriers: list[str] = Field(default_factory=list)
 
     max_budget: Optional[float] = None
@@ -184,7 +196,7 @@ class ApprovalDispatchPayload(BaseModel):
     courier_code: str
     approved_by: str = "Shipping Operator"
     total_cost: float
-    provider_mode: str = "demo"
+    provider_mode: Optional[str] = None
 
 
 class CustomPackagingPayload(BaseModel):
@@ -208,21 +220,505 @@ def health_check() -> dict[str, Any]:
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "database": "connected",
-        "provider_modes": ["demo"],
+        "active_provider_mode": get_active_provider_mode(),
+        "provider_modes": ["demo", "sandbox", "manual_sandbox"],
     }
 
 
+class ProviderModePayload(BaseModel):
+    mode: str
+
+
+@app.get("/api/provider/status")
+def get_provider_status_api() -> dict[str, Any]:
+    """Retrieve connection and credential configuration status."""
+    return get_provider_status()
+
+
+@app.post("/api/provider/mode")
+def set_provider_mode_api(payload: ProviderModePayload) -> dict[str, Any]:
+    """Switch active provider mode between 'demo', 'sandbox', and 'manual_sandbox'."""
+    try:
+        new_mode = set_active_provider_mode(payload.mode)
+        return {"status": "ok", "active_mode": new_mode}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+class ManualSandboxQuotePayload(BaseModel):
+    order_reference: str
+    courier_name: str
+    service_type: str = "Standard Ground"
+    base_freight: float
+    fuel_surcharge: float = 0.0
+    tax_amount: float = 0.0
+    total_cost: float
+    estimated_delivery_days: int = 3
+    notes: Optional[str] = None
+    dashboard_reference: Optional[str] = None
+    source_identifier: Optional[str] = None
+    source_url: Optional[str] = None
+    retrieval_timestamp: Optional[str] = None
+    retrieval_method: Optional[str] = "MANUAL_DASHBOARD_TRANSCRIPTION"
+    raw_data: Optional[dict[str, Any]] = None
+
+
+class DashboardExportPayload(BaseModel):
+    order_reference: str
+    source_identifier: str = "courier-dashboard-export"
+    source_url: Optional[str] = None
+    retrieval_timestamp: Optional[str] = None
+    quotes: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@app.post("/api/manual-sandbox/quote")
+def create_manual_sandbox_quote(payload: ManualSandboxQuotePayload) -> dict[str, Any]:
+    """
+    Record a manually verified quote copied by the operator from a carrier sandbox dashboard.
+    Stores source IDs, dashboard URLs, retrieval timestamps, and field-level provenance.
+    """
+    order = _ACTIVE_ORDERS_CACHE.get(payload.order_reference)
+    if not order:
+        order_row = db_manager.get_order(payload.order_reference)
+        if not order_row:
+            raise HTTPException(status_code=404, detail=f"Order '{payload.order_reference}' not found.")
+        sender = Address.model_validate_json(order_row["sender_json"])
+        recipient = Address.model_validate_json(order_row["recipient_json"])
+        order = OrderInput(
+            order_reference=order_row["order_reference"],
+            sender=sender,
+            recipient=recipient,
+            parcel_weight_kg=order_row["parcel_weight_kg"],
+            dimensions=Dimensions(
+                length_cm=order_row["length_cm"],
+                width_cm=order_row["width_cm"],
+                height_cm=order_row["height_cm"],
+            ),
+            package_type=PackageType(order_row["package_type"]),
+            is_cod=bool(order_row["is_cod"]),
+            cod_amount=order_row["cod_amount"] or 0.0,
+        )
+        _ACTIVE_ORDERS_CACHE[order.order_reference] = order
+
+    courier_code_clean = re.sub(r'[^A-Z0-9_]', '_', payload.courier_name.upper().strip())
+    quote_id = f"MANUAL-{uuid.uuid4().hex[:8]}"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    retrieval_ts = payload.retrieval_timestamp or now_iso
+    source_id = payload.source_identifier or "operator-dashboard-manual"
+    source_url = payload.source_url or payload.dashboard_reference or None
+    retrieval_method = payload.retrieval_method or "MANUAL_DASHBOARD_TRANSCRIPTION"
+
+    input_hash = hashlib.sha256(
+        f"{order.order_reference}:{order.sender.pin_code}:{order.recipient.pin_code}:{order.parcel_weight_kg}".encode()
+    ).hexdigest()[:12]
+
+    subtotal = payload.base_freight + payload.fuel_surcharge
+    fuel_rate_pct = round((payload.fuel_surcharge / payload.base_freight * 100.0), 2) if payload.base_freight > 0 else 0.0
+    tax_rate_pct = round((payload.tax_amount / subtotal * 100.0), 2) if subtotal > 0 else 18.0
+
+    breakdown = CostBreakdown(
+        base_freight=payload.base_freight,
+        fuel_surcharge=payload.fuel_surcharge,
+        fuel_surcharge_rate_pct=fuel_rate_pct,
+        cod_fee=0.0,
+        handling_fee=0.0,
+        subtotal_before_tax=round(subtotal, 2),
+        tax_amount=payload.tax_amount,
+        tax_rate_pct=tax_rate_pct,
+        total_cost=payload.total_cost,
+        currency="INR",
+    )
+
+    weight_res = WeightResult(
+        actual_weight_kg=order.parcel_weight_kg,
+        volumetric_weight_kg=round(order.dimensions.volume_cm3 / 5000.0, 3),
+        chargeable_weight_kg=order.parcel_weight_kg,
+        billing_slab_kg=order.parcel_weight_kg,
+        divisor_used=5000.0,
+        is_volumetric_penalty=False,
+    )
+
+    raw_snapshot = payload.raw_data or {
+        "courier_name": payload.courier_name,
+        "service_type": payload.service_type,
+        "base_freight": payload.base_freight,
+        "fuel_surcharge": payload.fuel_surcharge,
+        "tax_amount": payload.tax_amount,
+        "total_cost": payload.total_cost,
+        "estimated_delivery_days": payload.estimated_delivery_days,
+        "dashboard_reference": payload.dashboard_reference,
+        "source_url": source_url,
+        "source_id": source_id,
+        "notes": payload.notes,
+        "input_timestamp": retrieval_ts,
+    }
+
+    quote = CourierQuote(
+        quote_id=quote_id,
+        courier_code=f"MANUAL_{courier_code_clean}",
+        courier_name=f"{payload.courier_name} (Manual Entry — Not API Verified)",
+        service_type=payload.service_type,
+        estimated_delivery_days=payload.estimated_delivery_days,
+        is_serviceable=True,
+        is_eligible=True,
+        eligibility_status="ELIGIBLE",
+        evidence_source="Manual Sandbox Dashboard Entry (Not API Verified)",
+        evidence_url=source_url,
+        weight_result=weight_res,
+        cost_breakdown=breakdown,
+        retrieval_timestamp=retrieval_ts,
+        source_type="MANUAL_SANDBOX",
+        source_id=source_id,
+        retrieval_method=retrieval_method,
+        raw_response_snapshot=raw_snapshot,
+        input_hash=input_hash,
+        decision_explanation=f"Manual entry from external dashboard. Ref: {payload.dashboard_reference or 'N/A'}. Source: {source_id}. URL: {source_url or 'N/A'}. Not API verified. Notes: {payload.notes or 'None'}",
+        is_demo_data=False,
+        missing_evidence=[
+            "Manual Entry — Not API Verified: Rate and SLA transcribed from external dashboard without direct API verification",
+            "Operator entered manually; not retrieved via direct API call",
+        ],
+        disclaimer="MANUAL ENTRY — NOT API VERIFIED: Entered manually by operator from external sandbox dashboard.",
+    )
+    quote.populate_standard_field_provenance(order.order_reference)
+
+    db_manager.save_quote_model(quote, order.order_reference)
+    existing_quotes = _ACTIVE_QUOTES_CACHE.get(order.order_reference, [])
+    updated_quotes = [q for q in existing_quotes if q.quote_id != quote.quote_id] + [quote]
+    _ACTIVE_QUOTES_CACHE[order.order_reference] = updated_quotes
+
+    ranking = rank_couriers(updated_quotes, RankingPreferences(mode=RankingMode.LOWEST_COST))
+
+    return {
+        "status": "created",
+        "quote": quote.model_dump(),
+        "quotes_count": len(updated_quotes),
+        "selected_winner": ranking.selected_winner.quote.model_dump() if ranking and ranking.selected_winner else None,
+    }
+
+
+@app.post("/api/manual-sandbox/dashboard-export")
+def import_dashboard_export(payload: DashboardExportPayload) -> dict[str, Any]:
+    """
+    Import and parse exported or copied dashboard rate payloads from a courier aggregator.
+    Extracts quote fields and attaches complete provenance (source ID, source URL, timestamp).
+    """
+    order = _ACTIVE_ORDERS_CACHE.get(payload.order_reference)
+    if not order:
+        order_row = db_manager.get_order(payload.order_reference)
+        if not order_row:
+            raise HTTPException(status_code=404, detail=f"Order '{payload.order_reference}' not found.")
+        sender = Address.model_validate_json(order_row["sender_json"])
+        recipient = Address.model_validate_json(order_row["recipient_json"])
+        order = OrderInput(
+            order_reference=order_row["order_reference"],
+            sender=sender,
+            recipient=recipient,
+            parcel_weight_kg=order_row["parcel_weight_kg"],
+            dimensions=Dimensions(
+                length_cm=order_row["length_cm"],
+                width_cm=order_row["width_cm"],
+                height_cm=order_row["height_cm"],
+            ),
+            package_type=PackageType(order_row["package_type"]),
+            is_cod=bool(order_row["is_cod"]),
+            cod_amount=order_row["cod_amount"] or 0.0,
+        )
+        _ACTIVE_ORDERS_CACHE[order.order_reference] = order
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    retrieval_ts = payload.retrieval_timestamp or now_iso
+    source_id = payload.source_identifier or "courier-dashboard-export"
+    source_url = payload.source_url or "https://dashboard.courier-aggregator.mock"
+    input_hash = hashlib.sha256(
+        f"{order.order_reference}:{order.sender.pin_code}:{order.recipient.pin_code}:{order.parcel_weight_kg}".encode()
+    ).hexdigest()[:12]
+
+    imported_quotes: list[CourierQuote] = []
+    for item in payload.quotes:
+        c_name = item.get("courier_name") or item.get("name") or "Aggregator Courier"
+        c_code = re.sub(r'[^A-Z0-9_]', '_', str(c_name).upper().strip())
+        s_type = item.get("service_type") or item.get("tier") or "Standard Express"
+        base_f = float(item.get("base_freight") or item.get("freight") or item.get("rate") or 0.0)
+        fuel = float(item.get("fuel_surcharge") or item.get("fuel") or 0.0)
+        tax = float(item.get("tax_amount") or item.get("tax") or item.get("gst") or 0.0)
+        total_c = float(item.get("total_cost") or item.get("total") or (base_f + fuel + tax))
+        est_days = int(item.get("estimated_delivery_days") or item.get("sla_days") or item.get("etd_days") or 3)
+
+        subtotal = base_f + fuel
+        fuel_pct = round((fuel / base_f * 100.0), 2) if base_f > 0 else 0.0
+        tax_pct = round((tax / subtotal * 100.0), 2) if subtotal > 0 else 18.0
+
+        breakdown = CostBreakdown(
+            base_freight=base_f,
+            fuel_surcharge=fuel,
+            fuel_surcharge_rate_pct=fuel_pct,
+            cod_fee=0.0,
+            handling_fee=0.0,
+            subtotal_before_tax=round(subtotal, 2),
+            tax_amount=tax,
+            tax_rate_pct=tax_pct,
+            total_cost=total_c,
+            currency="INR",
+        )
+        weight_res = WeightResult(
+            actual_weight_kg=order.parcel_weight_kg,
+            volumetric_weight_kg=round(order.dimensions.volume_cm3 / 5000.0, 3),
+            chargeable_weight_kg=order.parcel_weight_kg,
+            billing_slab_kg=order.parcel_weight_kg,
+            divisor_used=5000.0,
+            is_volumetric_penalty=False,
+        )
+
+        quote_id = f"EXPORT-{uuid.uuid4().hex[:8]}"
+        q = CourierQuote(
+            quote_id=quote_id,
+            courier_code=f"EXP_{c_code}",
+            courier_name=f"{c_name} (Dashboard Export)",
+            service_type=s_type,
+            estimated_delivery_days=est_days,
+            is_serviceable=True,
+            is_eligible=True,
+            eligibility_status="ELIGIBLE",
+            evidence_source=f"Aggregator Dashboard Export ({source_id})",
+            evidence_url=source_url,
+            weight_result=weight_res,
+            cost_breakdown=breakdown,
+            retrieval_timestamp=retrieval_ts,
+            source_type="MANUAL_SANDBOX",
+            source_id=source_id,
+            retrieval_method="DASHBOARD_EXPORT_PARSER",
+            raw_response_snapshot=item,
+            input_hash=input_hash,
+            decision_explanation=f"Parsed from aggregator dashboard export payload. Source: {source_id}. URL: {source_url}.",
+            is_demo_data=False,
+            missing_evidence=[
+                "Transcribed from aggregator dashboard export snapshot",
+                "Direct real-time carrier API connection not used",
+            ],
+            disclaimer="DASHBOARD EXPORT: Parsed from courier dashboard export payload.",
+        )
+        q.populate_standard_field_provenance(order.order_reference)
+        db_manager.save_quote_model(q, order.order_reference)
+        imported_quotes.append(q)
+
+    existing = _ACTIVE_QUOTES_CACHE.get(order.order_reference, [])
+    updated = existing + imported_quotes
+    _ACTIVE_QUOTES_CACHE[order.order_reference] = updated
+    ranking = rank_couriers(updated, RankingPreferences(mode=RankingMode.LOWEST_COST))
+
+    return {
+        "status": "imported",
+        "imported_count": len(imported_quotes),
+        "total_quotes": len(updated),
+        "quotes": [q.model_dump() for q in imported_quotes],
+        "selected_winner": ranking.selected_winner.quote.model_dump() if ranking and ranking.selected_winner else None,
+    }
+
+
+@app.get("/api/quotes/{quote_id}/provenance")
+def get_quote_provenance(quote_id: str) -> dict[str, Any]:
+    """Retrieve full field-level provenance audit trail for a quote."""
+    prov_records = db_manager.get_field_provenance_for_quote(quote_id)
+    quote_row = db_manager.get_quote(quote_id)
+    return {
+        "quote_id": quote_id,
+        "exists": bool(quote_row or prov_records),
+        "quote_summary": quote_row,
+        "provenance_count": len(prov_records),
+        "field_provenance": prov_records,
+    }
+
+
+@app.get("/api/orders/{order_reference}/provenance")
+def get_order_provenance(order_reference: str) -> dict[str, Any]:
+    """Retrieve all field-level provenance audit records for an order."""
+    prov_records = db_manager.get_field_provenance_for_order(order_reference)
+    return {
+        "order_reference": order_reference,
+        "provenance_count": len(prov_records),
+        "provenance_records": prov_records,
+    }
+
+
+# -----------------------------------------------------------------------------
+# Official Competition Test Cases (TC1 – TC4) Metadata & Endpoints
+# -----------------------------------------------------------------------------
+
+OFFICIAL_TC_METADATA: dict[str, dict[str, Any]] = {
+    "TC1": {
+        "id": "TC1",
+        "title": "TC1: Same Parcel on Three Couriers",
+        "subtitle": "Evaluates the same shipment across 3 couriers; ranks by lowest applicable cost with transparent breakdowns.",
+        "description": "One parcel with three courier quotes. All three compared and ranked by total cost, with base freight, fuel surcharge, and tax fee breakdowns.",
+        "expected": "All 3 couriers compared, fee breakdowns transparently calculated, ranked by lowest cost.",
+        "route": "560103 -> 411001",
+        "dimensions": "25.0 x 20.0 x 15.0 cm",
+        "weight_kg": 2.0,
+        "builder": OfficialScenariosRunner.build_order_tc1,
+    },
+    "TC2": {
+        "id": "TC2",
+        "title": "TC2: Large, Light Box (Volumetric Penalty)",
+        "subtitle": "60x50x40 cm (120,000 cm3) with 0.5 kg actual weight. Volumetric divisors (5000, 4500, 4000) applied.",
+        "description": "Light parcel with large dimensions. Volumetric weight exceeds dead weight; each courier applies its distinct divisor.",
+        "expected": "Volumetric weight exceeds dead weight; each courier applies its distinct divisor (5000, 4500, 4000).",
+        "route": "122001 -> 700016",
+        "dimensions": "60.0 x 50.0 x 40.0 cm",
+        "weight_kg": 0.5,
+        "builder": OfficialScenariosRunner.build_order_tc2,
+    },
+    "TC3": {
+        "id": "TC3",
+        "title": "TC3: Destination PIN Not Serviceable",
+        "subtitle": "Remote destination PIN 791111 (Arunachal Pradesh). Excludes unserviceable Air Express; cost is never silently zero.",
+        "description": "Destination marked unserviceable for Air Express (remote prefix '79'). Unserviceable courier excluded with explicit audit reason; cost is None.",
+        "expected": "Air Express excluded with explicit reason; unserviceable cost is None (not zero); ranking selects only eligible couriers.",
+        "route": "110020 -> 791111",
+        "dimensions": "25.0 x 20.0 x 15.0 cm",
+        "weight_kg": 2.0,
+        "builder": OfficialScenariosRunner.build_order_tc3,
+    },
+    "TC4": {
+        "id": "TC4",
+        "title": "TC4: Label Created, AWB Matched & Pickup Verified",
+        "subtitle": "Approved order dispatch, compliant shipping label creation, AWB matching, and 5-point verification check.",
+        "description": "Approved order with eligible courier. Label created, tracking AWB returned, label corresponds to AWB/order, pickup schedule confirmed, 5-point independent verification passes.",
+        "expected": "Shipment created, AWB returned, label corresponds to AWB/order, pickup schedule confirmed, 5-point verification passes.",
+        "route": "201309 -> 600002",
+        "dimensions": "30.0 x 20.0 x 10.0 cm",
+        "weight_kg": 1.5,
+        "builder": OfficialScenariosRunner.build_order_tc4,
+    },
+}
+
+
+@app.get("/api/official-scenarios")
+def list_official_scenarios() -> list[dict[str, Any]]:
+    """List the 4 Official Competition Test Cases with latest execution results."""
+    items = []
+    for tc_id, meta in OFFICIAL_TC_METADATA.items():
+        runs = db_manager.get_official_test_runs(tc_id)
+        latest_run = runs[0] if runs else None
+        
+        status = latest_run["status"] if latest_run else "NOT RUN"
+        actual_result = latest_run["actual_result"] if latest_run else None
+        explanation = latest_run["explanation"] if latest_run else None
+        evidence = None
+        if latest_run and latest_run.get("evidence_json"):
+            try:
+                evidence = json.loads(latest_run["evidence_json"])
+            except Exception:
+                evidence = latest_run["evidence_json"]
+        timestamp = latest_run["timestamp"] if latest_run else None
+
+        items.append({
+            "id": tc_id,
+            "title": meta["title"],
+            "subtitle": meta["subtitle"],
+            "description": meta["description"],
+            "expected": meta["expected"],
+            "route": meta["route"],
+            "dimensions": meta["dimensions"],
+            "weight_kg": meta["weight_kg"],
+            "status": status,
+            "actual_outcome": actual_result,
+            "explanation": explanation,
+            "evidence": evidence,
+            "timestamp": timestamp,
+        })
+    return items
+
+
+@app.post("/api/official-scenarios/{test_case_id}/run")
+def run_official_scenario_test(test_case_id: str) -> dict[str, Any]:
+    """Execute official deterministic test run for TC1-TC4."""
+    tc_id = test_case_id.upper().strip()
+    if tc_id not in OFFICIAL_TC_METADATA:
+        raise HTTPException(status_code=404, detail=f"Official test case '{test_case_id}' not found.")
+    runner = OfficialScenariosRunner(db_manager)
+    res = runner.run_single(tc_id)
+    return res.model_dump()
+
+
+@app.post("/api/official-scenarios/run")
+def run_all_official_scenarios() -> list[dict[str, Any]]:
+    """Execute all 4 official test cases in sequence."""
+    runner = OfficialScenariosRunner(db_manager)
+    results = runner.run_all()
+    return [r.model_dump() for r in results]
+
+
+@app.post("/api/official-scenarios/{test_case_id}/load")
+def load_official_scenario(test_case_id: str) -> dict[str, Any]:
+    """Build and evaluate official test case inputs in 1 click."""
+    tc_id = test_case_id.upper().strip()
+    if tc_id not in OFFICIAL_TC_METADATA:
+        raise HTTPException(status_code=404, detail=f"Official test case '{test_case_id}' not found.")
+    
+    meta = OFFICIAL_TC_METADATA[tc_id]
+    builder = meta["builder"]
+    order = builder()
+
+    provider = DemoShippingAdapter()
+    quotes = provider.get_rates(order)
+
+    # Persist in DB
+    db_manager.save_order_model(order)
+    for q in quotes:
+        db_manager.save_quote_model(q, order.order_reference)
+
+    _ACTIVE_ORDERS_CACHE[order.order_reference] = order
+    _ACTIVE_QUOTES_CACHE[order.order_reference] = quotes
+
+    # Ranking
+    rank_pref = RankingPreferences(mode=RankingMode.LOWEST_COST)
+    ranking = rank_couriers(quotes, rank_pref)
+
+    adv_prefs = UserShippingPreferences(max_budget=300.0, max_delivery_days=3)
+    advisor = build_advisor_recommendation(quotes, adv_prefs)
+
+    has_eligible = bool(ranking and ranking.selected_winner)
+    return {
+        "test_case_id": tc_id,
+        "title": meta["title"],
+        "order": order.model_dump(),
+        "quotes": [q.model_dump() for q in quotes],
+        "ranking": ranking.model_dump() if ranking else None,
+        "advisor": advisor.model_dump() if advisor else None,
+        "selected_quote_id": ranking.selected_winner.quote.quote_id if has_eligible else None,
+        "has_eligible_couriers": has_eligible,
+        "comparison_table": getattr(ranking, "comparison_table", []),
+        "winner_reasons": getattr(ranking, "winner_reasons", []),
+        "trade_off_analysis": getattr(ranking, "trade_off_analysis", ""),
+        "loss_reasons": getattr(ranking, "loss_reasons", {}),
+        "decision_provenance": getattr(ranking, "decision_provenance", {}),
+    }
+
+
+# -----------------------------------------------------------------------------
+# 10 Evaluator Edge-Case Scenarios (Demo A through Demo J)
+# -----------------------------------------------------------------------------
+
 @app.get("/api/scenarios")
 def list_scenarios() -> list[dict[str, Any]]:
-    """List all 10 Evaluator Scenarios with metadata."""
+    """List all 10 Evaluator Scenarios with metadata and latest outcomes."""
     scenarios = []
     for sc_id, meta in SCENARIO_METADATA.items():
+        runs = db_manager.get_official_test_runs(sc_id)
+        latest_run = runs[0] if runs else None
+        
+        status = latest_run["status"] if latest_run else "NOT RUN"
+        actual_outcome = latest_run["actual_result"] if latest_run else None
+
         scenarios.append({
             "id": sc_id,
             "title": meta.get("title", sc_id),
             "full_title": meta.get("full_title", sc_id),
             "description": meta.get("description", ""),
             "expected": meta.get("expected", ""),
+            "status": status,
+            "actual_outcome": actual_outcome,
         })
     return scenarios
 
@@ -238,7 +734,8 @@ def load_scenario(scenario_id: str) -> dict[str, Any]:
     builder = meta["builder"]
     order = builder()
 
-    provider = DemoShippingAdapter(couriers=ALL_DEMO_COURIERS)
+    couriers = CORE_DEMO_COURIERS if sc_id in ("DEMO_E", "DEMO_F", "DEMO_G", "DEMO_H") else ALL_DEMO_COURIERS
+    provider = DemoShippingAdapter(couriers=couriers)
     quotes = provider.get_rates(order)
 
     # Persist in DB
@@ -274,19 +771,60 @@ def load_scenario(scenario_id: str) -> dict[str, Any]:
         "winner_reasons": getattr(ranking, "winner_reasons", []),
         "trade_off_analysis": getattr(ranking, "trade_off_analysis", ""),
         "loss_reasons": getattr(ranking, "loss_reasons", {}),
+        "decision_provenance": getattr(ranking, "decision_provenance", {}),
     }
 
 
 @app.post("/api/scenarios/{scenario_id}/run")
 def run_scenario_test(scenario_id: str) -> dict[str, Any]:
-    """Execute official deterministic test run for the scenario."""
+    """Execute official deterministic test run for the scenario and persist outcome."""
     sc_id = scenario_id.upper()
     if sc_id not in SCENARIO_METADATA:
         raise HTTPException(status_code=404, detail=f"Scenario '{scenario_id}' not found.")
 
     suite = EvaluatorSuite(db_manager)
     res: ScenarioResult = suite.run_scenario(sc_id)
+
+    # Persist scenario result into SQLite so history, metrics, and cards reflect actual outcomes
+    try:
+        db_manager.insert_official_test_run({
+            "test_case_id": res.scenario_id,
+            "test_case_name": res.title,
+            "status": res.status.value if hasattr(res.status, "value") else str(res.status),
+            "input_record_json": json.dumps(res.input_summary),
+            "expected_result": res.expected_outcome,
+            "actual_result": res.actual_outcome,
+            "evidence_json": json.dumps(res.evidence or {}),
+            "explanation": res.explanation,
+            "timestamp": res.timestamp,
+        })
+    except Exception:
+        pass
+
     return res.model_dump()
+
+
+@app.post("/api/scenarios/run")
+def run_all_scenarios() -> list[dict[str, Any]]:
+    """Execute all 10 demo scenarios in sequence."""
+    suite = EvaluatorSuite(db_manager)
+    results = suite.run_all()
+    for res in results:
+        try:
+            db_manager.insert_official_test_run({
+                "test_case_id": res.scenario_id,
+                "test_case_name": res.title,
+                "status": res.status.value if hasattr(res.status, "value") else str(res.status),
+                "input_record_json": json.dumps(res.input_summary),
+                "expected_result": res.expected_outcome,
+                "actual_result": res.actual_outcome,
+                "evidence_json": json.dumps(res.evidence or {}),
+                "explanation": res.explanation,
+                "timestamp": res.timestamp,
+            })
+        except Exception:
+            pass
+    return [r.model_dump() for r in results]
 
 
 @app.get("/api/scenarios/test-runs")
@@ -594,8 +1132,24 @@ def calculate_rates(req: RateRequest) -> dict[str, Any]:
     )
 
     # 3. Provider rates
-    provider: CourierProvider = get_provider(req.provider_mode)
-    raw_quotes = provider.get_rates(order)
+    mode = (req.provider_mode or get_active_provider_mode()).lower().strip()
+    if mode in ("sandbox", "local_sandbox"):
+        mode = "local_sandbox"
+    if mode == "manual_sandbox":
+        cached = _ACTIVE_QUOTES_CACHE.get(order.order_reference, [])
+        manual_quotes = [q for q in cached if getattr(q, "source_type", "") == "MANUAL_SANDBOX"]
+        if not manual_quotes:
+            db_quotes_data = db_manager.get_quotes_for_order(order.order_reference)
+            for row in db_quotes_data:
+                if row.get("source_type") == "MANUAL_SANDBOX" and row.get("quote_data_json"):
+                    try:
+                        manual_quotes.append(CourierQuote.model_validate_json(row["quote_data_json"]))
+                    except Exception:
+                        pass
+        raw_quotes = manual_quotes
+    else:
+        provider = get_provider(mode)
+        raw_quotes = provider.get_rates(order)
 
     # Filter excluded couriers if any
     quotes = [q for q in raw_quotes if q.courier_code not in req.excluded_couriers]
@@ -670,6 +1224,7 @@ def calculate_rates(req: RateRequest) -> dict[str, Any]:
         "winner_reasons": getattr(ranking, "winner_reasons", []),
         "trade_off_analysis": getattr(ranking, "trade_off_analysis", ""),
         "loss_reasons": getattr(ranking, "loss_reasons", {}),
+        "decision_provenance": getattr(ranking, "decision_provenance", {}),
     }
 
 
@@ -721,7 +1276,10 @@ def approve_and_dispatch(payload: ApprovalDispatchPayload) -> dict[str, Any]:
             detail=f"Cannot approve or dispatch an unserviceable or ineligible courier quote: {reason}",
         )
 
-    provider = get_provider(payload.provider_mode)
+    provider_mode = (payload.provider_mode or get_active_provider_mode()).lower().strip()
+    if provider_mode in ("sandbox", "local_sandbox"):
+        provider_mode = "local_sandbox"
+    provider = get_provider(provider_mode)
 
     approval = ApprovalRecord(
         order_reference=order.order_reference,
@@ -754,6 +1312,8 @@ def approve_and_dispatch(payload: ApprovalDispatchPayload) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"Approval invalidated: {e}")
     except StaleQuoteError as e:
         raise HTTPException(status_code=400, detail=f"Quote stale: {e}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Dispatch error: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Dispatch failed: {e}")
 

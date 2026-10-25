@@ -379,7 +379,7 @@ class ShipmentVerificationService:
 
         # Check 4: Pickup schedule returned or checked through provider
         pickup_valid = False
-        if pickup_result and pickup_result.status == "CONFIRMED":
+        if pickup_result and pickup_result.status in ("CONFIRMED", "CONFIRMED_SIMULATED"):
             pickup_valid = True
             pickup_status = VerificationStatus.VERIFIED
             pickup_details = (

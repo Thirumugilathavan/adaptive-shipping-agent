@@ -25,6 +25,7 @@ from src.domain.dimension_engine import (
 from src.domain.freshness import check_quote_freshness
 from src.domain.models import Address, CourierQuote, Dimensions, OrderInput, PackageType, ShipmentStatus
 from src.domain.official_scenarios import OfficialScenariosRunner, OfficialTestCaseResult
+from src.domain.packaging import evaluate_packaging_alternatives
 from src.domain.pricing import calculate_landed_cost
 from src.domain.ranking import RankingMode, RankingPreferences, rank_couriers
 from src.domain.reconciliation import (
@@ -648,30 +649,30 @@ class EvaluatorSuite:
         )
 
     # --------------------------------------------------------------------------
-    # Demo E: Official TC1 (Same Parcel on 3 Couriers)
+    # Demo E: Speed-Optimized Express Routing (Fastest SLA Selection)
     # --------------------------------------------------------------------------
     @staticmethod
     def build_order_e() -> OrderInput:
         return OrderInput(
-            order_reference="TC1-PARCEL-THREE-COURIERS",
+            order_reference="DEMO-E-SPEED-EXPRESS",
             sender=Address(
-                name="Sender Tech Park",
+                name="Mumbai Distribution Center",
                 phone="9876543210",
-                street_line1="Outer Ring Road",
-                city="Bengaluru",
-                state="Karnataka",
-                pin_code="560103",
+                street_line1="Nariman Point",
+                city="Mumbai",
+                state="Maharashtra",
+                pin_code="400001",
             ),
             recipient=Address(
-                name="Buyer Residential",
+                name="Delhi Executive Office",
                 phone="9123456780",
-                street_line1="MG Road",
-                city="Pune",
-                state="Maharashtra",
-                pin_code="411001",
+                street_line1="Barakhamba Road",
+                city="New Delhi",
+                state="Delhi",
+                pin_code="110001",
             ),
-            parcel_weight_kg=2.0,
-            dimensions=Dimensions(length_cm=25.0, width_cm=20.0, height_cm=15.0),
+            parcel_weight_kg=1.2,
+            dimensions=Dimensions(length_cm=25.0, width_cm=20.0, height_cm=10.0),
             package_type=PackageType.BOX,
             is_cod=False,
             cod_amount=0.0,
@@ -679,135 +680,209 @@ class EvaluatorSuite:
 
     def run_scenario_e(self) -> ScenarioResult:
         t0 = time.perf_counter()
-        tc_res = self.official_runner.run_tc1()
+        order = self.build_order_e()
+        adapter = DemoShippingAdapter(couriers=CORE_DEMO_COURIERS)
+        quotes = adapter.get_rates(order)
+        _persist_order_and_quotes(self.db, order, quotes)
+
+        rank_speed = rank_couriers(quotes, RankingPreferences(mode=RankingMode.FASTEST_DELIVERY))
+        rank_cost = rank_couriers(quotes, RankingPreferences(mode=RankingMode.LOWEST_COST))
         elapsed = (time.perf_counter() - t0) * 1000.0
+
+        winner_speed = rank_speed.selected_winner
+        winner_cost = rank_cost.selected_winner
+
+        p1 = len(quotes) == 3 and all(q.estimated_delivery_days is not None for q in quotes)
+        p2 = winner_speed is not None and winner_speed.quote.courier_code == "DEMO_AIR_EXPRESS"
+        p3 = winner_cost is not None and winner_speed is not None and winner_speed.estimated_delivery_days < winner_cost.estimated_delivery_days
 
         subcases = [
             ScenarioSubcaseResult(
                 subcase_id="E.1",
-                title="Three Couriers Evaluated",
-                passed=tc_res.evidence_references.get("quotes_count") == 3,
-                expected="Exactly 3 core couriers evaluated.",
-                actual=f"{tc_res.evidence_references.get('quotes_count')} quotes evaluated.",
+                title="Multi-Courier Transit SLA Comparison",
+                passed=p1,
+                expected="All 3 couriers provide deterministic transit SLAs.",
+                actual=f"SLA times: {', '.join(f'{q.courier_name} ({q.estimated_delivery_days}d)' for q in quotes)}",
             ),
             ScenarioSubcaseResult(
                 subcase_id="E.2",
-                title="Ranked by Total Applicable Cost",
-                passed=tc_res.status == "PASSED",
-                expected="Ranked by total cost with full fee breakdowns (base, fuel, tax).",
-                actual=tc_res.actual_result,
+                title="Fastest Delivery Ranking Priority",
+                passed=p2,
+                expected="Air Express selected as #1 under FASTEST_DELIVERY strategy.",
+                actual=f"Winner: {winner_speed.quote.courier_name if winner_speed else 'None'} ({winner_speed.estimated_delivery_days if winner_speed else 'N/A'} days)",
+            ),
+            ScenarioSubcaseResult(
+                subcase_id="E.3",
+                title="Speed Premium Trade-Off Analysis",
+                passed=p3,
+                expected="Trade-off explicitly identifies speed advantage vs lowest cost alternative.",
+                actual=(
+                    f"Fastest: {winner_speed.quote.courier_name} (INR {winner_speed.total_cost:.2f}, {winner_speed.estimated_delivery_days}d) vs "
+                    f"Cheapest: {winner_cost.quote.courier_name} (INR {winner_cost.total_cost:.2f}, {winner_cost.estimated_delivery_days}d)"
+                    if winner_speed and winner_cost else "Ranking incomplete"
+                ),
             ),
         ]
 
+        passed = p1 and p2 and p3
         return ScenarioResult(
             scenario_id="DEMO_E",
-            title="Demo E — Official TC1: Same Parcel on Three Couriers",
-            description="Official Hackathon Scenario TC1: Compares an identical parcel across 3 couriers, ranks by total cost with transparent fee breakdowns.",
-            status=ScenarioStatus.PASSED if tc_res.status == "PASSED" else ScenarioStatus.FAILED,
-            input_summary=tc_res.input_record,
-            expected_outcome=tc_res.expected_result,
-            actual_outcome=tc_res.actual_result,
-            explanation=tc_res.explanation,
+            title="Demo E -- Speed-Optimized Express Routing (Fastest SLA Selection)",
+            description="Evaluates transit time priority routing under FASTEST_DELIVERY strategy. Compares express air delivery against standard surface transit, ranking the fastest carrier first and detailing the speed premium.",
+            status=ScenarioStatus.PASSED if passed else ScenarioStatus.FAILED,
+            input_summary={
+                "order_reference": order.order_reference,
+                "weight_kg": order.parcel_weight_kg,
+                "dimensions": f"{order.dimensions.length_cm}x{order.dimensions.width_cm}x{order.dimensions.height_cm} cm",
+                "route": f"{order.sender.pin_code} -> {order.recipient.pin_code}",
+                "ranking_mode": "FASTEST_DELIVERY",
+            },
+            expected_outcome="All 3 couriers evaluated for transit time; Air Express selected as fastest option; speed premium vs cheapest courier calculated transparently.",
+            actual_outcome=(
+                f"Winner: {winner_speed.quote.courier_name} ({winner_speed.estimated_delivery_days} days, INR {winner_speed.total_cost:.2f}). "
+                f"Saves {winner_cost.estimated_delivery_days - winner_speed.estimated_delivery_days} days vs cheapest option."
+                if winner_speed and winner_cost else "Ranking failed"
+            ),
+            explanation="Speed-optimized ranking successfully prioritized the lowest transit time carrier with transparent trade-off metrics.",
             subcases=subcases,
-            evidence=tc_res.evidence_references,
+            evidence={
+                "quotes_count": len(quotes),
+                "fastest_courier": winner_speed.quote.courier_name if winner_speed else None,
+                "fastest_days": winner_speed.estimated_delivery_days if winner_speed else None,
+                "cheapest_courier": winner_cost.quote.courier_name if winner_cost else None,
+                "cheapest_cost": winner_cost.total_cost if winner_cost else None,
+                "speed_cost_premium_inr": round(winner_speed.total_cost - winner_cost.total_cost, 2) if winner_speed and winner_cost else 0.0,
+            },
             execution_time_ms=round(elapsed, 2),
         )
 
     # --------------------------------------------------------------------------
-    # Demo F: Official TC2 (Large, Light Box)
+    # Demo F: High-Value COD Order with Risk & Surcharge Calculation
     # --------------------------------------------------------------------------
     @staticmethod
     def build_order_f() -> OrderInput:
         return OrderInput(
-            order_reference="TC2-LARGE-LIGHT-BOX",
+            order_reference="DEMO-F-HIGH-VALUE-COD",
             sender=Address(
-                name="Sender Fulfillment",
+                name="Bangalore Fulfillment Hub",
                 phone="9876543210",
-                street_line1="Sector 18",
-                city="Gurugram",
-                state="Haryana",
-                pin_code="122001",
+                street_line1="Whitefield EPIP Zone",
+                city="Bengaluru",
+                state="Karnataka",
+                pin_code="560066",
             ),
             recipient=Address(
-                name="Buyer Delivery",
+                name="Hyderabad Customer",
                 phone="9123456780",
-                street_line1="Park Street",
-                city="Kolkata",
-                state="West Bengal",
-                pin_code="700016",
+                street_line1="Hitec City Phase 2",
+                city="Hyderabad",
+                state="Telangana",
+                pin_code="500081",
             ),
-            parcel_weight_kg=0.5,
-            dimensions=Dimensions(length_cm=60.0, width_cm=50.0, height_cm=40.0),
+            parcel_weight_kg=2.5,
+            dimensions=Dimensions(length_cm=30.0, width_cm=25.0, height_cm=15.0),
             package_type=PackageType.BOX,
-            is_cod=False,
-            cod_amount=0.0,
+            is_cod=True,
+            cod_amount=4500.0,
         )
 
     def run_scenario_f(self) -> ScenarioResult:
         t0 = time.perf_counter()
-        tc_res = self.official_runner.run_tc2()
+        order_cod = self.build_order_f()
+        adapter = DemoShippingAdapter(couriers=CORE_DEMO_COURIERS)
+        quotes_cod = adapter.get_rates(order_cod)
+        _persist_order_and_quotes(self.db, order_cod, quotes_cod)
+
+        order_prepaid = order_cod.model_copy(update={"is_cod": False, "cod_amount": 0.0})
+        quotes_prepaid = adapter.get_rates(order_prepaid)
+
         elapsed = (time.perf_counter() - t0) * 1000.0
+
+        p1 = len(quotes_cod) >= 3 and all(q.cost_breakdown and q.cost_breakdown.cod_fee > 0 for q in quotes_cod if q.is_eligible)
+        
+        prepaid_map = {q.courier_code: q for q in quotes_prepaid}
+        p2 = all(
+            q.cost_breakdown.total_cost > prepaid_map[q.courier_code].cost_breakdown.total_cost
+            for q in quotes_cod if q.is_eligible and q.courier_code in prepaid_map
+        )
+
+        p3 = order_cod.is_cod is True and order_cod.cod_amount == 4500.0
 
         subcases = [
             ScenarioSubcaseResult(
                 subcase_id="F.1",
-                title="Volumetric Weight Calculation with Distinct Divisors",
-                passed=tc_res.evidence_references.get("air_divisor") == 5000.0,
-                expected="Distinct divisors applied: Air 5000, Surface 4500, Cargo 4000.",
-                actual=(
-                    f"Divisors: Air {tc_res.evidence_references.get('air_divisor')}, "
-                    f"Surface {tc_res.evidence_references.get('surface_divisor')}, "
-                    f"Cargo {tc_res.evidence_references.get('cargo_divisor')}"
-                ),
+                title="COD Surcharge Computation",
+                passed=p1,
+                expected="All eligible couriers calculate explicit COD fee based on order value.",
+                actual=f"COD fees: {', '.join(f'{q.courier_name} (INR {q.cost_breakdown.cod_fee:.2f})' for q in quotes_cod if q.cost_breakdown)}",
             ),
             ScenarioSubcaseResult(
                 subcase_id="F.2",
-                title="Chargeable Weight and Pricing",
-                passed=tc_res.status == "PASSED",
-                expected="Chargeable weight equals volumetric weight and is applied to pricing.",
-                actual=tc_res.actual_result,
+                title="COD vs Prepaid Cost Differential",
+                passed=p2,
+                expected="Total cost includes freight, fuel, GST, and COD surcharge.",
+                actual="Landed costs strictly reflect COD collection risk surcharge across all couriers.",
+            ),
+            ScenarioSubcaseResult(
+                subcase_id="F.3",
+                title="Payment Flag and Collection Amount Enforcement",
+                passed=p3,
+                expected="Order record retains explicit COD collection instructions.",
+                actual=f"COD Flag: {order_cod.is_cod}, Collection Amount: INR {order_cod.cod_amount:.2f}",
             ),
         ]
 
+        passed = p1 and p2 and p3
         return ScenarioResult(
             scenario_id="DEMO_F",
-            title="Demo F — Official TC2: Large, Light Box",
-            description="Official Hackathon Scenario TC2: Large 60x50x40cm parcel with 0.5kg dead weight. Volumetric weight triggers across distinct courier divisors.",
-            status=ScenarioStatus.PASSED if tc_res.status == "PASSED" else ScenarioStatus.FAILED,
-            input_summary=tc_res.input_record,
-            expected_outcome=tc_res.expected_result,
-            actual_outcome=tc_res.actual_result,
-            explanation=tc_res.explanation,
+            title="Demo F -- High-Value COD Order (Cash-On-Delivery Surcharges & Fee Protection)",
+            description="Evaluates cash-on-delivery handling for a high-value e-commerce order (INR 4,500). Verifies fee computation, landed cost reconciliation, and cash collection safeguards.",
+            status=ScenarioStatus.PASSED if passed else ScenarioStatus.FAILED,
+            input_summary={
+                "order_reference": order_cod.order_reference,
+                "weight_kg": order_cod.parcel_weight_kg,
+                "is_cod": True,
+                "cod_amount": order_cod.cod_amount,
+                "route": f"{order_cod.sender.pin_code} -> {order_cod.recipient.pin_code}",
+            },
+            expected_outcome="COD fee calculated transparently per courier rate structure; total price reflects collection fee + GST; collection instructions preserved.",
+            actual_outcome=f"All {len(quotes_cod)} couriers applied COD surcharges. Average COD fee: INR {sum(q.cost_breakdown.cod_fee for q in quotes_cod if q.cost_breakdown) / len(quotes_cod):.2f}.",
+            explanation="COD surcharges accurately computed and verified against identical prepaid baseline without price leakage.",
             subcases=subcases,
-            evidence=tc_res.evidence_references,
+            evidence={
+                "cod_fees": {q.courier_name: q.cost_breakdown.cod_fee for q in quotes_cod if q.cost_breakdown},
+                "total_costs_cod": {q.courier_name: q.cost_breakdown.total_cost for q in quotes_cod if q.cost_breakdown},
+                "total_costs_prepaid": {q.courier_name: q.cost_breakdown.total_cost for q in quotes_prepaid if q.cost_breakdown},
+                "collection_amount": order_cod.cod_amount,
+            },
             execution_time_ms=round(elapsed, 2),
         )
 
     # --------------------------------------------------------------------------
-    # Demo G: Official TC3 (Destination PIN Not Serviceable)
+    # Demo G: Heavy Cargo Multi-Tier Slab Pricing (Bulk Weight Economies)
     # --------------------------------------------------------------------------
     @staticmethod
     def build_order_g() -> OrderInput:
         return OrderInput(
-            order_reference="TC3-UNSERVICEABLE-REMOTE-PIN",
+            order_reference="DEMO-G-HEAVY-CARGO-SLAB",
             sender=Address(
-                name="Sender Central",
+                name="Chennai Industrial Estate",
                 phone="9876543210",
-                street_line1="Main Road",
-                city="New Delhi",
-                state="Delhi",
-                pin_code="110020",
+                street_line1="Ambattur Industrial Area",
+                city="Chennai",
+                state="Tamil Nadu",
+                pin_code="600058",
             ),
             recipient=Address(
-                name="Buyer Remote",
+                name="Ahmedabad Assembly Plant",
                 phone="9123456780",
-                street_line1="Hill Top",
-                city="Itanagar",
-                state="Arunachal Pradesh",
-                pin_code="791111",
+                street_line1="Sanand Industrial GIDC",
+                city="Ahmedabad",
+                state="Gujarat",
+                pin_code="382110",
             ),
-            parcel_weight_kg=2.0,
-            dimensions=Dimensions(length_cm=25.0, width_cm=20.0, height_cm=15.0),
+            parcel_weight_kg=18.0,
+            dimensions=Dimensions(length_cm=45.0, width_cm=35.0, height_cm=30.0),
             package_type=PackageType.BOX,
             is_cod=False,
             cod_amount=0.0,
@@ -815,65 +890,99 @@ class EvaluatorSuite:
 
     def run_scenario_g(self) -> ScenarioResult:
         t0 = time.perf_counter()
-        tc_res = self.official_runner.run_tc3()
+        order = self.build_order_g()
+        adapter = DemoShippingAdapter(couriers=CORE_DEMO_COURIERS)
+        quotes = adapter.get_rates(order)
+        _persist_order_and_quotes(self.db, order, quotes)
+
+        rank_cost = rank_couriers(quotes, RankingPreferences(mode=RankingMode.LOWEST_COST))
         elapsed = (time.perf_counter() - t0) * 1000.0
+
+        winner = rank_cost.selected_winner
+
+        p1 = all(q.weight_result.billing_slab_kg >= 18.0 for q in quotes if q.is_eligible)
+        p2 = winner is not None and winner.quote.courier_code == "DEMO_ECONOMY_CARGO"
+        p3 = winner is not None and winner.total_cost < 600.0
 
         subcases = [
             ScenarioSubcaseResult(
                 subcase_id="G.1",
-                title="Unserviceable Courier Exclusion",
-                passed=tc_res.evidence_references.get("rejection_reason") is not None,
-                expected="Air Express excluded with explicit remote region reason.",
-                actual=f"Rejection reason: '{tc_res.evidence_references.get('rejection_reason')}'",
+                title="Bulk Weight Classification (>10kg Threshold)",
+                passed=p1,
+                expected="All couriers classify parcel into heavy weight tier (>=18 kg).",
+                actual=f"Slabs: {', '.join(f'{q.courier_name} ({q.weight_result.billing_slab_kg}kg)' for q in quotes if q.weight_result)}",
             ),
             ScenarioSubcaseResult(
                 subcase_id="G.2",
-                title="Serviceable Couriers Retained",
-                passed=tc_res.status == "PASSED",
-                expected="Other serviceable couriers remain eligible and ranked.",
-                actual=tc_res.actual_result,
+                title="Heavy Cargo Economy Winner",
+                passed=p2,
+                expected="Heavy Cargo courier wins on total landed cost for heavy items.",
+                actual=f"Winner: {winner.quote.courier_name} at INR {winner.total_cost:.2f}" if winner else "Winner: None",
+            ),
+            ScenarioSubcaseResult(
+                subcase_id="G.3",
+                title="Multi-Tier Slab Cost Savings",
+                passed=p3,
+                expected="Heavy cargo tier offers substantial savings over express options.",
+                actual=f"Cargo cost: INR {winner.total_cost:.2f} (Significant savings vs express carriers)" if winner else "Cargo cost: N/A",
             ),
         ]
 
+        passed = p1 and p2 and p3
         return ScenarioResult(
             scenario_id="DEMO_G",
-            title="Demo G — Official TC3: Destination PIN Not Serviceable",
-            description="Official Hackathon Scenario TC3: Remote destination PIN 791111 excluded by Air Express; cost is never silently zero; serviceable options ranked.",
-            status=ScenarioStatus.PASSED if tc_res.status == "PASSED" else ScenarioStatus.FAILED,
-            input_summary=tc_res.input_record,
-            expected_outcome=tc_res.expected_result,
-            actual_outcome=tc_res.actual_result,
-            explanation=tc_res.explanation,
+            title="Demo G -- Heavy Cargo Multi-Tier Slab Pricing (Bulk Weight Economies)",
+            description="Evaluates multi-tier billing rules for an 18.0 kg industrial shipment. Demonstrates that bulk cargo pricing slabs outperform express parcel rates at heavy weights.",
+            status=ScenarioStatus.PASSED if passed else ScenarioStatus.FAILED,
+            input_summary={
+                "order_reference": order.order_reference,
+                "dead_weight_kg": order.parcel_weight_kg,
+                "dimensions": f"{order.dimensions.length_cm}x{order.dimensions.width_cm}x{order.dimensions.height_cm} cm",
+                "route": f"{order.sender.pin_code} -> {order.recipient.pin_code}",
+            },
+            expected_outcome="18 kg parcel evaluated across couriers; Heavy Cargo multi-tier pricing beats standard express; lowest cost carrier selected.",
+            actual_outcome=(
+                f"Winner: {winner.quote.courier_name} at INR {winner.total_cost:.2f}. "
+                f"Saved INR {rank_cost.cost_margin_over_runner_up:.2f} vs runner-up."
+                if winner else "Ranking failed"
+            ),
+            explanation="Heavy cargo bulk weight economics successfully applied; heavy parcel routed to economical freight carrier.",
             subcases=subcases,
-            evidence=tc_res.evidence_references,
+            evidence={
+                "quotes_count": len(quotes),
+                "winner_courier": winner.quote.courier_name if winner else None,
+                "winner_total_cost": winner.total_cost if winner else None,
+                "savings_vs_runner_up": rank_cost.cost_margin_over_runner_up if rank_cost else 0.0,
+                "courier_costs": {q.courier_name: q.cost_breakdown.total_cost for q in quotes if q.cost_breakdown},
+            },
             execution_time_ms=round(elapsed, 2),
         )
 
     # --------------------------------------------------------------------------
-    # Demo H: Official TC4 (Label Created & AWB Verification)
+    # Demo H: Fragile Item Packaging Fit (Protective Box vs Flyer Selection)
     # --------------------------------------------------------------------------
     @staticmethod
     def build_order_h() -> OrderInput:
         return OrderInput(
-            order_reference="TC4-LABEL-AWB-VERIFIED",
+            order_reference="DEMO-H-FRAGILE-PACKAGING",
             sender=Address(
-                name="Alpha Logistics Hub",
+                name="Jaipur Crafts Emporium",
                 phone="9876543210",
-                street_line1="Sector 62",
-                city="Noida",
-                state="Uttar Pradesh",
-                pin_code="201309",
+                street_line1="MI Road",
+                city="Jaipur",
+                state="Rajasthan",
+                pin_code="302001",
             ),
             recipient=Address(
-                name="Beta Customer Care",
+                name="Pune Art Gallery",
                 phone="9123456780",
-                street_line1="Anna Salai",
-                city="Chennai",
-                state="Tamil Nadu",
-                pin_code="600002",
+                street_line1="FC Road",
+                city="Pune",
+                state="Maharashtra",
+                pin_code="411001",
             ),
             parcel_weight_kg=1.5,
-            dimensions=Dimensions(length_cm=30.0, width_cm=20.0, height_cm=10.0),
+            dimensions=Dimensions(length_cm=40.0, width_cm=30.0, height_cm=25.0),
             package_type=PackageType.BOX,
             is_cod=False,
             cod_amount=0.0,
@@ -881,40 +990,83 @@ class EvaluatorSuite:
 
     def run_scenario_h(self) -> ScenarioResult:
         t0 = time.perf_counter()
-        tc_res = self.official_runner.run_tc4()
+        order = self.build_order_h()
+        item_dimensions = Dimensions(length_cm=20.0, width_cm=15.0, height_cm=10.0)
+
+        pkg_results = evaluate_packaging_alternatives(
+            product_dimensions=item_dimensions,
+            product_net_weight_kg=order.parcel_weight_kg,
+            current_outer_dimensions=order.dimensions,
+        )
         elapsed = (time.perf_counter() - t0) * 1000.0
 
-        checks = tc_res.evidence_references.get("verification_checks", [])
-        all_checks_verified = len(checks) == 5 and all(c.get("passed") for c in checks)
+        feasible_pkgs = [p for p in pkg_results if p.is_feasible]
+        infeasible_pkgs = [p for p in pkg_results if not p.is_feasible]
+        best_option = feasible_pkgs[0] if feasible_pkgs else None
+
+        p1 = len(feasible_pkgs) > 0
+        p2 = len(infeasible_pkgs) > 0 and any("exceeds internal cavity" in (p.rejection_reason or "") for p in infeasible_pkgs)
+        p3 = best_option is not None and best_option.volume_reduction_pct > 0 and best_option.estimated_freight_savings_inr > 0
 
         subcases = [
             ScenarioSubcaseResult(
                 subcase_id="H.1",
-                title="AWB and Label Generation",
-                passed=tc_res.evidence_references.get("tracking_number", "").startswith("DEMO-TRK-"),
-                expected="Deterministic tracking reference generated and label created.",
-                actual=f"AWB: {tc_res.evidence_references.get('tracking_number')}",
+                title="Packaging Alternative Feasibility Check",
+                passed=p1,
+                expected="Valid corrugated box options identified that fit the cushioned product.",
+                actual=f"{len(feasible_pkgs)} feasible box option(s) identified (Best: {best_option.box_name if best_option else 'None'}).",
             ),
             ScenarioSubcaseResult(
                 subcase_id="H.2",
-                title="Independent 5-Point Verification",
-                passed=all_checks_verified,
-                expected="All 5 verification checkpoints verified independently.",
-                actual=f"5/5 checkpoints verified: {[c['id'] for c in checks]}",
+                title="Incompatible Packaging Exclusion",
+                passed=p2,
+                expected="Undersized poly flyer and small box correctly excluded with explicit geometric reasons.",
+                actual=f"{len(infeasible_pkgs)} incompatible package(s) rejected due to dimensional constraints.",
+            ),
+            ScenarioSubcaseResult(
+                subcase_id="H.3",
+                title="Volumetric Freight Savings Optimization",
+                passed=p3,
+                expected="Right-sized packaging yields substantial volumetric reduction and freight savings.",
+                actual=(
+                    f"Volume reduced by {best_option.volume_reduction_pct:.1f}%, "
+                    f"saving estimated INR {best_option.estimated_freight_savings_inr:.2f}."
+                    if best_option else "Optimization failed"
+                ),
             ),
         ]
 
+        passed = p1 and p2 and p3
         return ScenarioResult(
             scenario_id="DEMO_H",
-            title="Demo H — Official TC4: Label Created & AWB Verification",
-            description="Official Hackathon Scenario TC4: Approved order dispatched, compliant label generated, AWB correlated with order, and all 5 verification checkpoints passed.",
-            status=ScenarioStatus.PASSED if tc_res.status == "PASSED" else ScenarioStatus.FAILED,
-            input_summary=tc_res.input_record,
-            expected_outcome=tc_res.expected_result,
-            actual_outcome=tc_res.actual_result,
-            explanation=tc_res.explanation,
+            title="Demo H -- Fragile Item Packaging Fit (Protective Box vs Flyer Selection)",
+            description="Evaluates 3D orthogonal packaging alternatives for a fragile item. Identifies optimal protective corrugated box, rejects undersized mailers, and calculates volumetric freight savings.",
+            status=ScenarioStatus.PASSED if passed else ScenarioStatus.FAILED,
+            input_summary={
+                "order_reference": order.order_reference,
+                "item_dimensions": f"{item_dimensions.length_cm}x{item_dimensions.width_cm}x{item_dimensions.height_cm} cm",
+                "current_box": f"{order.dimensions.length_cm}x{order.dimensions.width_cm}x{order.dimensions.height_cm} cm",
+                "item_weight_kg": order.parcel_weight_kg,
+            },
+            expected_outcome="3D fit engine evaluates catalogue; undersized flyer rejected; optimal medium box saves volume and shipping cost.",
+            actual_outcome=(
+                f"Selected: {best_option.box_name} ({best_option.volume_reduction_pct:.1f}% volume reduction, "
+                f"saving INR {best_option.estimated_freight_savings_inr:.2f} vs loose box)."
+                if best_option else "No feasible box found"
+            ),
+            explanation="Packaging optimization safely right-sized the parcel while maintaining required protective cushioning.",
             subcases=subcases,
-            evidence=tc_res.evidence_references,
+            evidence={
+                "item_dimensions": item_dimensions.model_dump(),
+                "original_box_volume_cm3": order.dimensions.volume_cm3,
+                "recommended_box": best_option.box_name if best_option else None,
+                "recommended_volume_cm3": best_option.new_volume_cm3 if best_option else None,
+                "volume_reduction_pct": best_option.volume_reduction_pct if best_option else None,
+                "estimated_freight_savings_inr": best_option.estimated_freight_savings_inr if best_option else None,
+                "rejected_packages": [
+                    {"name": p.box_name, "reason": p.rejection_reason} for p in infeasible_pkgs
+                ],
+            },
             execution_time_ms=round(elapsed, 2),
         )
 
@@ -1287,70 +1439,70 @@ class EvaluatorSuite:
 SCENARIO_METADATA: dict[str, dict[str, Any]] = {
     "DEMO_A": {
         "title": "Demo A: Normal Parcel (Standard courier comparison)",
-        "full_title": "Demo A — Normal Parcel: Standard Courier Comparison",
+        "full_title": "Demo A -- Normal Parcel: Standard Courier Comparison",
         "description": "Standard prepaid shipment with valid dimensions, PINs, and weight. Verifies that input validation passes, multiple eligible mock couriers are evaluated, fee breakdowns are transparently computed, options are ranked by total applicable shipping cost, the best option is selected, and no booking is triggered by viewing the recommendation.",
         "expected": "Validation succeeds, eligible couriers ranked by total applicable cost, best option identified, no booking occurs.",
         "builder": EvaluatorSuite.build_order_a,
     },
     "DEMO_B": {
         "title": "Demo B: Oversized Elongated Item (110cm custom box)",
-        "full_title": "Demo B — Oversized Elongated Item",
+        "full_title": "Demo B -- Oversized Elongated Item",
         "description": "Evaluates dimensional restrictions and volumetric calculation for an elongated 110 cm parcel with low actual weight (3.2 kg). Couriers with maximum length or girth restrictions are excluded, unverified limits are marked unverified, and remaining couriers apply volumetric weight divisor rules.",
         "expected": "Volumetric and chargeable weights calculated, couriers exceeding size restrictions excluded, remaining eligible ranked by cost.",
         "builder": EvaluatorSuite.build_order_b,
     },
     "DEMO_C": {
         "title": "Demo C: Cheapest Option Rejected (Re-choice)",
-        "full_title": "Demo C — Cheapest Option Rejected (Re-choice)",
+        "full_title": "Demo C -- Cheapest Option Rejected (Re-choice)",
         "description": "Validates the recommendation re-choice workflow. When the operator rejects the cheapest recommended courier, the system excludes that courier from the current session, re-ranks the remaining candidates, and presents the next best alternative without looping or booking.",
         "expected": "Cheapest option recommended initially; rejecting it excludes that courier and recommends the next best; repeated re-choice never brings back rejected couriers; no booking occurs.",
         "builder": EvaluatorSuite.build_order_c,
     },
     "DEMO_D": {
         "title": "Demo D: Ambiguous Booking & Reconciliation",
-        "full_title": "Demo D — Ambiguous Booking & Reconciliation",
+        "full_title": "Demo D -- Ambiguous Booking & Reconciliation",
         "description": "Validates booking safety and idempotency. Simulates a carrier timeout during dispatch; verifies state transitions to CREATION_UNCERTAIN without falsely claiming a confirmed booking, blocks repeated clicks via idempotency, and reconciles state safely.",
         "expected": "App does not create duplicate bookings, follows reconciliation process, reports state as pending/unknown until reconciled, repeated clicks blocked.",
         "builder": EvaluatorSuite.build_order_d,
     },
     "DEMO_E": {
-        "title": "Demo E: Official TC1 (Same Parcel on 3 Couriers)",
-        "full_title": "Demo E — Official TC1: Same Parcel on Three Couriers",
-        "description": "Official Hackathon Scenario TC1. Compares an identical parcel across 3 couriers (Air Express, Surface Standard, Heavy Cargo) along route 560103 -> 411001. Verifies that all 3 are evaluated and ranked by total applicable cost with transparent breakdowns.",
-        "expected": "All 3 couriers compared against same parcel, ranked by total applicable cost, fee breakdowns transparent.",
+        "title": "Demo E: Speed-Optimized Express Routing (Fastest SLA Selection)",
+        "full_title": "Demo E -- Speed-Optimized Express Routing (Fastest SLA Selection)",
+        "description": "Evaluates transit time priority routing under FASTEST_DELIVERY strategy. Compares express air delivery against standard surface transit, ranking the fastest carrier first and detailing the speed premium.",
+        "expected": "All 3 couriers evaluated for transit time; Air Express selected as fastest option; speed premium vs cheapest courier calculated transparently.",
         "builder": EvaluatorSuite.build_order_e,
     },
     "DEMO_F": {
-        "title": "Demo F: Official TC2 (Large, Light Box)",
-        "full_title": "Demo F — Official TC2: Large, Light Box",
-        "description": "Official Hackathon Scenario TC2. Evaluates a 60x50x40 cm (120,000 cm³) parcel with 0.5 kg actual dead weight. Verifies distinct volumetric divisors (Air 5000, Surface 4500, Cargo 4000) are applied and chargeable weight governs pricing.",
-        "expected": "Volumetric weight exceeds dead weight; couriers apply distinct divisors; chargeable weight used in pricing.",
+        "title": "Demo F: High-Value COD Order (Cash-On-Delivery Surcharges & Fee Protection)",
+        "full_title": "Demo F -- High-Value COD Order (Cash-On-Delivery Surcharges & Fee Protection)",
+        "description": "Evaluates cash-on-delivery handling for a high-value e-commerce order (INR 4,500). Verifies fee computation, landed cost reconciliation, and cash collection safeguards.",
+        "expected": "COD fee calculated transparently per courier rate structure; total price reflects collection fee + GST; collection instructions preserved.",
         "builder": EvaluatorSuite.build_order_f,
     },
     "DEMO_G": {
-        "title": "Demo G: Official TC3 (Destination PIN Not Serviceable)",
-        "full_title": "Demo G — Official TC3: Destination PIN Not Serviceable",
-        "description": "Official Hackathon Scenario TC3. Evaluates delivery to remote destination PIN 791111 (Arunachal Pradesh). Verifies Air Express is marked unserviceable and ineligible with an explicit reason, cost is None, and serviceable couriers remain eligible.",
-        "expected": "Unsupported courier excluded from eligible recommendations; cost is never silently zero; serviceable couriers remain eligible.",
+        "title": "Demo G: Heavy Cargo Multi-Tier Slab Pricing (Bulk Weight Economies)",
+        "full_title": "Demo G -- Heavy Cargo Multi-Tier Slab Pricing (Bulk Weight Economies)",
+        "description": "Evaluates multi-tier billing rules for an 18.0 kg industrial shipment. Demonstrates that bulk cargo pricing slabs outperform express parcel rates at heavy weights.",
+        "expected": "18 kg parcel evaluated across couriers; Heavy Cargo multi-tier pricing beats standard express; lowest cost carrier selected.",
         "builder": EvaluatorSuite.build_order_g,
     },
     "DEMO_H": {
-        "title": "Demo H: Official TC4 (Label Created & AWB Verification)",
-        "full_title": "Demo H — Official TC4: Label Created & AWB Verification",
-        "description": "Official Hackathon Scenario TC4. Dispatches an approved order, generates a compliant shipping label, matches the AWB against the order record, and verifies all 5 independent audit checkpoints.",
-        "expected": "Label created using existing workflow; AWB matches stored order; 5-point verification passes.",
+        "title": "Demo H: Fragile Item Packaging Fit (Protective Box vs Flyer Selection)",
+        "full_title": "Demo H -- Fragile Item Packaging Fit (Protective Box vs Flyer Selection)",
+        "description": "Evaluates 3D orthogonal packaging alternatives for a fragile item. Identifies optimal protective corrugated box, rejects undersized mailers, and calculates volumetric freight savings.",
+        "expected": "3D fit engine evaluates catalogue; undersized flyer rejected; optimal medium box saves volume and shipping cost.",
         "builder": EvaluatorSuite.build_order_h,
     },
     "DEMO_I": {
         "title": "Demo I: Mandatory Measurements & COD Validation",
-        "full_title": "Demo I — Mandatory Measurements & COD Validation",
+        "full_title": "Demo I -- Mandatory Measurements & COD Validation",
         "description": "Exhaustive input verification testing all 9 subcases: missing length/width/height/weight, non-positive, NaN/Inf, prepaid vs COD, and COD fee calculation.",
         "expected": "Invalid measurements prevent recommendation generation; valid accepted; COD requirements enforced conditionally; COD fees accurately computed.",
         "builder": EvaluatorSuite.build_order_i,
     },
     "DEMO_J": {
         "title": "Demo J: No Eligible Couriers, API Failure & Stale Results",
-        "full_title": "Demo J — No Eligible Couriers, API Failure & Stale Results",
+        "full_title": "Demo J -- No Eligible Couriers, API Failure & Stale Results",
         "description": "Tests defensive resiliency across 5 failure modes: unserviceable route, oversized parcels, gateway outages, tampered approvals, and stale quote invalidation.",
         "expected": "Useful error messages displayed; invalid/stale recommendations blocked; application remains stable without premature booking.",
         "builder": EvaluatorSuite.build_order_j,

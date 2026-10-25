@@ -239,11 +239,11 @@ def evaluate_quote_compliance(
 
     # 5. Verification text
     if quote.source_type in ("MANUAL_SANDBOX", "SHIPSANDBOX"):
-        ver_text = "🔒 Manual Sandbox Entry: Verified rate entered manually via carrier dashboard."
+        ver_text = "Manual Sandbox Entry: Verified rate entered manually via carrier dashboard."
     elif quote.is_demo_data:
-        ver_text = "🔵 Simulated Demo Data: Synthetic carrier rate produced by Demo Shipping Adapter (not live carrier quote)."
+        ver_text = "Simulated Demo Data: Synthetic carrier rate produced by Demo Shipping Adapter (not live carrier quote)."
     else:
-        ver_text = "⚙️ Deterministic Pricing Engine: Computed using courier weight-break rules."
+        ver_text = "Deterministic Pricing Engine: Computed using courier weight-break rules."
 
     return CourierPreferenceCompliance(
         quote=quote,

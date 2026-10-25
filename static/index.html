@@ -26,8 +26,13 @@
       </div>
     </div>
     <div class="header-right">
-      <div class="provider-pill">
-        <span class="provider-badge" id="providerBadge" title="100% Offline Local Simulation">⚙️ Local Demo Adapter (Simulated)</span>
+      <div class="provider-control-group">
+        <label for="providerModeSelect" class="provider-mode-label">Mode:</label>
+        <select id="providerModeSelect" class="provider-mode-dropdown">
+          <option value="demo" selected>Local Demo Mode</option>
+          <option value="local_sandbox">Local Courier Sandbox (Simulation)</option>
+          <option value="manual_sandbox">Manual Sandbox Entry</option>
+        </select>
       </div>
       <div class="status-indicator">
         <span class="status-dot"></span>
@@ -39,7 +44,7 @@
   <!-- Navigation Tabs -->
   <nav class="nav-tabs">
     <button class="tab-btn active" data-tab="tab-rates">Rate Shopping &amp; Dispatch</button>
-    <button class="tab-btn" data-tab="tab-evaluator">10-Scenario Evaluator &amp; Tests</button>
+    <button class="tab-btn" data-tab="tab-evaluator">Official Tests &amp; 10 Demos</button>
     <button class="tab-btn" data-tab="tab-packaging">Packaging 3D Optimizer</button>
     <button class="tab-btn" data-tab="tab-audit">Security Audit Logs</button>
   </nav>
@@ -53,6 +58,15 @@
     <section id="tab-rates" class="tab-pane active">
       <div class="wizard-container">
         
+        <!-- Provider Mode Status Notification Bar -->
+        <div class="provider-mode-banner banner-demo" id="providerModeBanner">
+          <div class="banner-content" id="providerBannerContent">
+            <span class="banner-icon" id="providerBannerIcon">[MODE]</span>
+            <span class="banner-text" id="providerBannerText">Operating in <strong>Local Demo Mode</strong> with 100% offline simulated carriers.</span>
+          </div>
+          <div class="banner-actions" id="providerBannerActions"></div>
+        </div>
+
         <!-- Step Progress Header -->
         <div class="wizard-stepper" id="wizardStepper">
           <div class="step-item active" data-step="1" id="stepIndicator1">
@@ -230,7 +244,11 @@
                 <h2>Step 2: Carrier Rate Selection</h2>
                 <p class="panel-desc">Review ranked courier quotes, SLA turnaround times, and fee breakdowns.</p>
               </div>
-              <button id="btnBackToStep1" class="btn-outline btn-sm">Edit Dimensions</button>
+              <div style="display:flex; gap:8px;">
+                <button id="btnOpenManualQuoteModal" class="btn-primary btn-sm hidden">Add Manual Quote</button>
+                <button id="btnOpenDashboardExportModal" class="btn-outline btn-sm hidden">Paste Dashboard Export</button>
+                <button id="btnBackToStep1" class="btn-outline btn-sm">Edit Dimensions</button>
+              </div>
             </div>
 
             <!-- Quick Summary Strip -->
@@ -266,6 +284,15 @@
                 <strong>Cost vs. Delivery Trade-off Analysis:</strong>
                 <div id="advTradeoffText" style="margin-top: 4px; font-size: 13px;"></div>
                 <ul id="advTradeoffList" style="margin-top: 4px;"></ul>
+              </div>
+
+              <!-- Decision Provenance Audit Box -->
+              <div id="advProvenanceBox" class="decision-provenance-box hidden" style="margin-top: 10px; padding: 10px 14px; background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: var(--radius-sm); font-size: 12px; color: #334155;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                  <strong style="color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">Decision Provenance Audit:</strong>
+                  <span id="advProvBadge" style="background:#e2e8f0; color:#0f172a; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600;">Provenance Verified</span>
+                </div>
+                <div id="advProvDetails" style="line-height: 1.5;"></div>
               </div>
             </div>
 
@@ -497,11 +524,62 @@
     <!-- TAB 2: 10-Scenario Evaluator & Test Lab                             -->
     <!-- =================================================================== -->
     <section id="tab-evaluator" class="tab-pane">
-      <div class="panel">
+      
+      <!-- =============================================================== -->
+      <!-- SECTION 1: Official Competition Test Cases (TC1 – TC4)          -->
+      <!-- =============================================================== -->
+      <div class="panel official-tc-panel" style="margin-bottom: 24px;">
         <div class="panel-header">
           <div>
-            <h2>10-Scenario Shipping Evaluator &amp; Test Case Dashboard</h2>
-            <p class="panel-desc">Run deterministic edge-case benchmarks covering volumetric penalties, unserviceable PINs, timeout reconciliations, and label validations.</p>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+              <span class="badge-tc-flag">OFFICIAL HACKATHON CORE</span>
+              <h2 style="margin: 0;">4 Official Competition Test Cases (TC1 - TC4)</h2>
+            </div>
+            <p class="panel-desc">Dedicated verification dashboard for official Hackathon evaluation criteria. Each test case runs deterministic domain logic comparing couriers, volumetric divisors, remote PIN filtering, and 5-point dispatch audit.</p>
+          </div>
+          <div class="eval-actions">
+            <button id="btnRunAllOfficialTc" class="btn-primary" style="background: var(--primary);">Run All 4 Official Tests</button>
+            <button id="btnResetOfficialTc" class="btn-ghost">Reset Tests</button>
+          </div>
+        </div>
+
+        <!-- Metric KPI Strip -->
+        <div class="tc-metrics-strip" id="officialMetricsStrip">
+          <div class="tc-metric-card">
+            <span class="tc-metric-label">Tests Passed</span>
+            <span class="tc-metric-val text-success" id="officialMetricPassed">0 / 4</span>
+          </div>
+          <div class="tc-metric-card">
+            <span class="tc-metric-label">Tests Failed</span>
+            <span class="tc-metric-val text-danger" id="officialMetricFailed">0</span>
+          </div>
+          <div class="tc-metric-card">
+            <span class="tc-metric-label">Not Run</span>
+            <span class="tc-metric-val" id="officialMetricNotRun">4</span>
+          </div>
+          <div class="tc-metric-card">
+            <span class="tc-metric-label">Audit Engine</span>
+            <span class="tc-metric-val text-primary" id="officialMetricAudit">5-Point Verified</span>
+          </div>
+        </div>
+
+        <!-- 4 Official Test Cards Grid -->
+        <div class="official-tc-grid" id="officialTcGrid">
+          <!-- Populated dynamically via JS -->
+        </div>
+      </div>
+
+      <!-- =============================================================== -->
+      <!-- SECTION 2: 10 Evaluator Edge-Case Scenarios (Demo A – Demo J)   -->
+      <!-- =============================================================== -->
+      <div class="panel" style="margin-bottom: 24px;">
+        <div class="panel-header">
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+              <span class="badge-demo-flag">10 MOCK DATASETS</span>
+              <h2 style="margin: 0;">10 Evaluator Edge-Case Scenarios (Demo A - Demo J)</h2>
+            </div>
+            <p class="panel-desc">Comprehensive mock datasets testing extreme scenarios: elongated items, operator re-choice, ambiguous carrier timeouts &amp; idempotency, measurement boundary validation, and carrier failure modes.</p>
           </div>
           <div class="eval-actions">
             <button id="btnRunAllScenarios" class="btn-primary">Run All 10 Scenarios</button>
@@ -511,19 +589,26 @@
 
         <!-- 10 Scenarios Grid -->
         <div class="scenarios-grid" id="scenariosGrid"></div>
+      </div>
 
-        <!-- Test Case Execution Log Table -->
-        <div class="test-runs-section">
+      <!-- =============================================================== -->
+      <!-- SECTION 3: Official Test Execution History (SQLite)             -->
+      <!-- =============================================================== -->
+      <div class="panel">
+        <div class="test-runs-section" style="margin-top: 0;">
           <div class="section-header-row">
-            <h3>Official Test Execution History (SQLite)</h3>
+            <div>
+              <h3 style="margin: 0 0 4px 0;">Persistent Test Execution History (SQLite)</h3>
+              <p class="panel-desc" style="margin: 0; font-size: 13px;">Full audit log of executed test cases stored in SQLite table <code>official_test_runs</code> with input parameters and JSON evidence.</p>
+            </div>
             <span id="testRunsCountBadge" class="badge-count">0 Runs</span>
           </div>
-          <div class="table-responsive">
+          <div class="table-responsive" style="margin-top: 12px;">
             <table class="data-table" id="testRunsTable">
               <thead>
                 <tr>
                   <th>Test ID</th>
-                  <th>Scenario</th>
+                  <th>Scenario / Test Name</th>
                   <th>Status</th>
                   <th>Expected Result</th>
                   <th>Actual Outcome</th>
@@ -538,6 +623,7 @@
           </div>
         </div>
       </div>
+
     </section>
 
     <!-- =================================================================== -->
@@ -644,6 +730,136 @@
         <button id="modalCloseBtn" class="modal-close" aria-label="Close modal">&times;</button>
       </div>
       <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- Modal for Manual Sandbox Quote Entry -->
+  <div id="modalManualSandbox" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3>Add Manual Sandbox Quote</h3>
+        <button id="modalManualCloseBtn" class="modal-close" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="panel-desc" style="margin-bottom: 14px;">Record rate details copied from your courier sandbox dashboard (e.g. Shiprocket, Delhivery, or BlueDart) to evaluate under human approval.</p>
+        <form id="manualQuoteForm">
+          <div class="form-group">
+            <label for="mqCourierName">Courier Name *</label>
+            <input type="text" id="mqCourierName" placeholder="e.g. Delhivery Surface Sandbox" required>
+          </div>
+          <div class="grid-2">
+            <div class="form-group">
+              <label for="mqServiceType">Service Type *</label>
+              <input type="text" id="mqServiceType" placeholder="e.g. Express Air" value="Standard Ground" required>
+            </div>
+            <div class="form-group">
+              <label for="mqEstDays">Estimated Days *</label>
+              <input type="number" id="mqEstDays" value="3" min="1" required>
+            </div>
+          </div>
+          <div class="grid-3">
+            <div class="form-group">
+              <label for="mqBase">Base Freight (₹) *</label>
+              <input type="number" id="mqBase" step="0.5" placeholder="80.0" required>
+            </div>
+            <div class="form-group">
+              <label for="mqFuel">Fuel Surcharge (₹)</label>
+              <input type="number" id="mqFuel" step="0.5" value="0.0">
+            </div>
+            <div class="form-group">
+              <label for="mqTax">GST / Tax (₹)</label>
+              <input type="number" id="mqTax" step="0.5" value="0.0">
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="mqTotal">Total Quoted Cost (₹) *</label>
+            <input type="number" id="mqTotal" step="0.5" placeholder="Total landed cost" required>
+          </div>
+          <div class="form-group">
+            <label for="mqDashboardRef">Dashboard Reference / Tracking URL</label>
+            <input type="text" id="mqDashboardRef" placeholder="e.g. SBX-ORD-98234 or dashboard link">
+          </div>
+          <div class="grid-2">
+            <div class="form-group">
+              <label for="mqSourceId">Source Identifier</label>
+              <input type="text" id="mqSourceId" placeholder="e.g. shiprocket-sandbox-dashboard" value="operator-dashboard-manual">
+            </div>
+            <div class="form-group">
+              <label for="mqSourceUrl">Dashboard Source URL</label>
+              <input type="text" id="mqSourceUrl" placeholder="https://app.shiprocket.in/dashboard/rates">
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="mqNotes">Notes / Evidence Justification</label>
+            <textarea id="mqNotes" rows="2" placeholder="Recorded from sandbox dashboard simulator"></textarea>
+          </div>
+          <button type="submit" class="btn-primary full-width" style="margin-top: 10px;">Save Manual Quote to Session</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  
+  <!-- Modal for Dashboard Export Paste -->
+  <div id="modalDashboardExport" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3>Paste Courier Aggregator Dashboard Export</h3>
+        <button id="modalExportCloseBtn" class="modal-close" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="panel-desc" style="margin-bottom: 12px;">Paste JSON rates exported or copied from your courier aggregator sandbox dashboard (e.g., Shiprocket, Delhivery, or BlueDart).</p>
+        <form id="dashboardExportForm">
+          <div class="form-group">
+            <label for="expSourceId">Aggregator / Dashboard Identifier *</label>
+            <input type="text" id="expSourceId" value="courier-aggregator-sandbox-export" placeholder="e.g. shiprocket-sandbox-dashboard" required>
+          </div>
+          <div class="form-group">
+            <label for="expSourceUrl">Dashboard Source URL *</label>
+            <input type="url" id="expSourceUrl" value="https://app.shiprocket.in/dashboard/rates" placeholder="https://..." required>
+          </div>
+          <div class="form-group">
+            <label for="expJsonPayload">Dashboard Export JSON *</label>
+            <textarea id="expJsonPayload" rows="8" placeholder='[{"courier_name": "Delhivery Express", "base_freight": 85.0, "fuel_surcharge": 8.5, "tax_amount": 16.83, "total_cost": 110.33, "estimated_delivery_days": 2}]' required style="font-family: monospace; font-size: 12px;"></textarea>
+          </div>
+          <button type="submit" class="btn-primary full-width" style="margin-top: 8px;">Parse & Import Dashboard Quotes</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Field-Level Provenance & Audit -->
+  <div id="modalFieldProvenance" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 900px;">
+      <div class="modal-header">
+        <h3 id="modalProvTitle">Data Provenance Audit</h3>
+        <button id="modalProvCloseBtn" class="modal-close" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body" id="modalProvBody">
+        <p class="panel-desc" id="modalProvSubtitle" style="margin-bottom: 12px;">Detailed field-by-field audit trail establishing origin, retrieval endpoint, extraction timestamp, and validation status.</p>
+        <div style="overflow-x: auto; margin-bottom: 14px;">
+          <table class="table-custom" style="width: 100%; font-size: 12px; border-collapse: collapse;">
+            <thead>
+              <tr style="background: #f1f5f9; text-align: left; border-bottom: 2px solid #cbd5e1;">
+                <th style="padding: 8px 10px;">Field</th>
+                <th style="padding: 8px 10px;">Extracted Value</th>
+                <th style="padding: 8px 10px;">Source Type</th>
+                <th style="padding: 8px 10px;">Source Identifier</th>
+                <th style="padding: 8px 10px;">Source URL / Endpoint</th>
+                <th style="padding: 8px 10px;">Retrieved At (UTC)</th>
+                <th style="padding: 8px 10px;">Method</th>
+                <th style="padding: 8px 10px;">Status</th>
+              </tr>
+            </thead>
+            <tbody id="modalProvTableBody">
+            </tbody>
+          </table>
+        </div>
+        <div id="modalProvRawBox" style="margin-top: 10px;">
+          <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 4px;">Sanitized Source Payload Snapshot:</h4>
+          <pre id="modalProvRawPre" style="background: #0f172a; color: #f8fafc; padding: 10px; border-radius: 4px; max-height: 180px; overflow-y: auto; font-size: 11px; white-space: pre-wrap;"></pre>
+        </div>
+      </div>
     </div>
   </div>
 

@@ -770,7 +770,7 @@ def _render_ship_a_parcel_form():
                 )
                 st.session_state["pref_max_budget"] = float(b_val)
             else:
-                st.caption("ℹ Flexible budget: couriers will be evaluated to find the best available price.")
+                st.caption("Flexible budget: couriers will be evaluated to find the best available price.")
 
         with pref_col2:
             st.markdown("**Delivery Deadline**")
@@ -791,7 +791,7 @@ def _render_ship_a_parcel_form():
             )
             st.session_state["pref_delivery_deadline"] = chosen_deadline
             if chosen_deadline == "Flexible delivery time":
-                st.caption("ℹ Flexible delivery: standard and economy transit options are included.")
+                st.caption("Flexible delivery: standard and economy transit options are included.")
             else:
                 st.caption(f"We'll prioritize couriers delivering {chosen_deadline.lower()}.")
 
@@ -873,9 +873,9 @@ def _render_ship_a_parcel_form():
         if not svc_ok:
             st.error(f"[FAIL]  {svc_msg}")
             if provider_mode == "demo":
-                st.caption("ℹ Demo Network Data: Route serviceability verified against Demo Shipping Adapter simulated network data (Non-official carrier verification).")
+                st.caption("Demo Network Data: Route serviceability verified against Demo Shipping Adapter simulated network data (Non-official carrier verification).")
             else:
-                st.caption(f"ℹ {provider.provider_name}: Route serviceability check failed.")
+                st.caption(f"{provider.provider_name}: Route serviceability check failed.")
             st.session_state["quotes"] = None
             st.session_state["selected_quote"] = None
             st.session_state["approval_given"] = False
@@ -939,7 +939,7 @@ def _render_ship_a_parcel_form():
             eligible = [q for q in quotes if q.is_eligible and q.cost_breakdown]
             if not eligible:
                 st.error("[FAIL]  Delivery to this PIN code is currently unavailable. Please check the PIN code or try another supported destination.")
-                st.caption("ℹ Demo Network Data: No couriers in the simulated network can service this parcel to destination PIN.")
+                st.caption("Demo Network Data: No couriers in the simulated network can service this parcel to destination PIN.")
                 st.session_state["quotes"] = quotes
                 st.session_state["selected_quote"] = None
                 st.session_state["approval_given"] = False
@@ -1036,7 +1036,7 @@ def _render_ship_a_parcel_form():
             st.session_state["decision_trace"] = trace
 
         st.success(f"[PASS]  Found eligible courier options for **PIN {pickup_pin} -> PIN {delivery_pin}** via {provider.provider_name}.")
-        st.caption("ℹ Route serviceability verified against Demo Shipping Adapter simulated network data (Simulated Demo Data — not official carrier confirmation).")
+        st.caption("Route serviceability verified against Demo Shipping Adapter simulated network data (Simulated Demo Data -- not official carrier confirmation).")
         st.session_state["wizard_step"] = 2
         st.rerun()
 
@@ -1285,7 +1285,7 @@ def _render_rate_comparison():
 
             if is_user_switched and primary_quote:
                 st.info(
-                    f"ℹ **Alternative Selected:** You have selected `{display_comp.courier_name}`. "
+                    f"**Alternative Selected:** You have selected `{display_comp.courier_name}`. "
                     f"Our primary recommendation based on your preferences was `{primary_quote.courier_name}`.",
                     icon=None,
                 )
@@ -1714,7 +1714,7 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
     # 5-Point Verification Badges & Label Provenance
     if report:
         if getattr(report, "label_details", None) and getattr(report.label_details, "is_demo_label", False):
-            st.info(f"ℹ **Label Verification Notice:** {report.label_details.summary_message}")
+            st.info(f"**Label Verification Notice:** {report.label_details.summary_message}")
 
         status_str = getattr(report.overall_status, "value", str(report.overall_status)).upper()
         all_ok = (status_str in ("VERIFIED", "PASS"))
@@ -1957,7 +1957,7 @@ def render_approval_dispatch():
     elif order and selected_quote:
         _render_review_and_approve_section()
     else:
-        st.info("ℹ Enter shipment details in 'Ship a Parcel' to generate and approve shipping quotes.")
+        st.info("Enter shipment details in 'Ship a Parcel' to generate and approve shipping quotes.")
 
 
 # ── Advanced Tool 1: Packaging Optimizer ─────────────────────────────────────
@@ -2103,7 +2103,7 @@ def render_stress_testing():
     selected_quote: Optional[CourierQuote] = st.session_state.get("selected_quote")
 
     if order is None or selected_quote is None:
-        st.info("ℹ Enter shipment details in 'Ship a Parcel' to run automated stress tests on the selected quote.")
+        st.info("Enter shipment details in 'Ship a Parcel' to run automated stress tests on the selected quote.")
         return
 
     st.markdown(f"**Active Order:** `{order.order_reference}` | **Selected Courier:** **{selected_quote.courier_name}**")
@@ -2278,7 +2278,7 @@ def render_official_test_cases_dashboard():
     # Action bar
     act_col1, act_col2 = st.columns([2, 1])
     with act_col1:
-        if st.button("▶ Run All Official Tests (TC1 – TC4)", type="primary", use_container_width=True, key="btn_run_all_tc"):
+        if st.button("Run All Official Tests (TC1 - TC4)", type="primary", use_container_width=True, key="btn_run_all_tc"):
             all_res = runner.run_all()
             if "official_test_results" not in st.session_state:
                 st.session_state["official_test_results"] = {}
@@ -2346,7 +2346,7 @@ def render_official_test_cases_dashboard():
     elif failed_cnt > 0 or error_cnt > 0:
         st.error(f"[NOTICE]  **{failed_cnt} Test Case(s) Failed, {error_cnt} Error(s).** Review failure explanations below.")
     elif not_run_cnt == 4:
-        st.info("ℹ Official test cases are currently NOT RUN. Click **'Run All Official Tests'** or run individual tests below.")
+        st.info("Official test cases are currently NOT RUN. Click **'Run All Official Tests'** or run individual tests below.")
 
     st.markdown("---")
 
@@ -2416,7 +2416,7 @@ def render_official_test_cases_dashboard():
                     st.info("[NOT RUN]  **Status: NOT RUN**")
                     st.caption("Click 'Run Test' below to execute this scenario.")
 
-                if st.button(f"▶ Run {spec['id']} Test", key=f"btn_run_{spec['id'].lower()}", use_container_width=True):
+                if st.button(f"Run {spec['id']} Test", key=f"btn_run_{spec['id'].lower()}", use_container_width=True):
                     res = runner.run_single(spec["id"])
                     if "official_test_results" not in st.session_state:
                         st.session_state["official_test_results"] = {}

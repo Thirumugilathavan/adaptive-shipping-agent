@@ -466,7 +466,7 @@ class DemoShippingAdapter(CourierProvider):
         if serviceable_count == 0:
             return False, "Delivery to this PIN code is currently unavailable. Please check the PIN code or try another supported destination.", True
 
-        return True, f"Route PIN {origin} ➔ PIN {dest} serviceable across {serviceable_count} courier(s) in demo network.", True
+        return True, f"Route PIN {origin} -> PIN {dest} serviceable across {serviceable_count} courier(s) in demo network.", True
 
     def _generate_input_hash(self, order: OrderInput) -> str:
         raw = (
@@ -653,6 +653,9 @@ class DemoShippingAdapter(CourierProvider):
                 )
             )
 
+        for q in quotes:
+            q.populate_standard_field_provenance(order_reference=order.order_reference)
+
         return quotes
 
     def create_shipment(
@@ -822,7 +825,7 @@ class DemoShippingAdapter(CourierProvider):
     <span>DISPATCHED: {datetime.now(timezone.utc).strftime("%d-%b-%Y")}</span>
   </div>
   <div class="demo-note">
-    🔵 SIMULATED DEMO LABEL: Generated for verification and demonstration. Not a valid commercial carrier label.
+    SIMULATED DEMO LABEL: Generated for verification and demonstration. Not a valid commercial carrier label.
   </div>
 </div>
 </body>
@@ -961,3 +964,208 @@ class DemoShippingAdapter(CourierProvider):
     def cancel_shipment(self, shipment_id: str) -> bool:
         """Simulate cancellation."""
         return True
+
+
+class LocalSandboxShippingAdapter(DemoShippingAdapter):
+    """
+    Local Courier Sandbox (Simulation) Adapter.
+    Provides a completely self-contained, offline sandbox test environment using
+    deterministic synthetic courier quotes, simulated serviceability, and test lifecycle execution.
+    Requires zero external API credentials, zero internet access, and makes zero network calls.
+    All outputs are explicitly marked as Local Courier Sandbox (Simulation).
+    """
+
+    @property
+    def provider_code(self) -> str:
+        return "LOCAL_COURIER_SANDBOX"
+
+    @property
+    def provider_name(self) -> str:
+        return "Local Courier Sandbox (Simulation)"
+
+    @property
+    def is_demo(self) -> bool:
+        return True
+
+    def get_rates(self, order: OrderInput) -> list[CourierQuote]:
+        """
+        Evaluate rates across couriers in offline sandbox mode against a faithful local aggregator mock.
+        All quotes are tagged with source_type='LOCAL_SANDBOX', source_id='courier-aggregator-sandbox-mock-v1',
+        mock endpoint 'mock://courier-aggregator/v1/serviceability-rates', and full field-level provenance.
+        """
+        base_quotes = super().get_rates(order)
+        sandbox_quotes: list[CourierQuote] = []
+        for q in base_quotes:
+            q_dict = q.model_dump()
+            q_dict["quote_id"] = q.quote_id.replace("QUOTE-DEMO-", "QUOTE-SBX-")
+            q_dict["source_type"] = "LOCAL_SANDBOX"
+            q_dict["source_id"] = "courier-aggregator-sandbox-mock-v1"
+            q_dict["evidence_source"] = "Aggregator Sandbox Mock Interface v1 (Offline)"
+            q_dict["evidence_url"] = "mock://courier-aggregator/v1/serviceability-rates"
+            q_dict["retrieval_method"] = "MOCK_AGGREGATOR_INTERFACE"
+            q_dict["is_demo_data"] = True
+            q_dict["courier_name"] = f"{q.courier_name.replace(' (Simulated)', '')} (Sandbox Simulation)"
+            q_dict["decision_explanation"] = f"[Local Sandbox Simulation] {q.decision_explanation}"
+            q_dict["missing_evidence"] = [
+                "Local Courier Sandbox (Simulation) - 100% offline synthetic data",
+                "Aggregator Sandbox Mock endpoint: mock://courier-aggregator/v1/serviceability-rates",
+                "No live external carrier network connected",
+            ]
+            q_dict["disclaimer"] = "LOCAL COURIER SANDBOX (SIMULATION): Deterministic offline quote for sandbox testing."
+
+            raw_payload = {
+                "courier_name": q.courier_name,
+                "courier_code": q.courier_code,
+                "base_freight": q.cost_breakdown.base_freight if q.cost_breakdown else 0.0,
+                "fuel_surcharge": q.cost_breakdown.fuel_surcharge if q.cost_breakdown else 0.0,
+                "tax_amount": q.cost_breakdown.tax_amount if q.cost_breakdown else 0.0,
+                "cod_fee": q.cost_breakdown.cod_fee if q.cost_breakdown else 0.0,
+                "total_cost": q.cost_breakdown.total_cost if q.cost_breakdown else 0.0,
+                "estimated_delivery_days": q.estimated_delivery_days,
+                "is_serviceable": q.is_serviceable,
+                "origin_pincode": order.sender.pin_code,
+                "destination_pincode": order.recipient.pin_code,
+                "mock_endpoint": "mock://courier-aggregator/v1/serviceability-rates",
+                "retrieved_at": q.retrieval_timestamp,
+            }
+            q_dict["raw_response_snapshot"] = raw_payload
+
+            sbx_quote = CourierQuote.model_validate(q_dict)
+            sbx_quote.populate_standard_field_provenance(order_reference=order.order_reference)
+            sandbox_quotes.append(sbx_quote)
+        return sandbox_quotes
+
+    def create_shipment(
+        self,
+        order: OrderInput,
+        quote: CourierQuote,
+        approval: ApprovalRecord,
+        idempotency_key: str,
+        generate_label: bool = False,
+    ) -> ShipmentResult:
+        """
+        Simulate shipment creation in local sandbox mode with strict human approval gate.
+        Generates clearly marked synthetic SBX-TRK- waybills and local labels.
+        """
+        if not quote.is_serviceable or not quote.is_eligible:
+            raise ValueError(f"Cannot create shipment with an ineligible quote: {quote.unserviceable_reason}")
+
+        hash_seed = f"{order.order_reference}:{quote.courier_code}:{idempotency_key[:8]}"
+        tracking_num = f"SBX-TRK-{hashlib.sha256(hash_seed.encode()).hexdigest()[:10].upper()}"
+        shipment_id = f"SBX-SHP-{order.order_reference}-{quote.courier_code}"
+
+        if not hasattr(self, "_shipment_orders"):
+            self._shipment_orders = {}
+        if not hasattr(self, "_shipment_quotes"):
+            self._shipment_quotes = {}
+        if not hasattr(self, "_scheduled_pickups"):
+            self._scheduled_pickups = {}
+
+        self._shipment_orders[shipment_id] = order
+        self._shipment_quotes[shipment_id] = quote
+
+        label_html = self.generate_label(shipment_id, tracking_number=tracking_num, order=order, quote=quote) if generate_label else None
+
+        res = ShipmentResult(
+            shipment_id=shipment_id,
+            order_reference=order.order_reference,
+            courier_code=quote.courier_code,
+            tracking_number=tracking_num,
+            label_status="AVAILABLE_HTML" if label_html else "UNSUPPORTED",
+            label_url_or_data=label_html,
+            is_demo_data=True,
+            disclaimer="LOCAL COURIER SANDBOX: Simulated sandbox booking reference for offline testing only. Not a live carrier shipment.",
+            raw_response={
+                "status": "SUCCESS_SIMULATED_SANDBOX",
+                "provider": self.provider_code,
+                "approved_by": approval.approved_by,
+                "approved_at": approval.approved_at,
+                "idempotency_key_acknowledged": idempotency_key,
+                "note": "Local sandbox simulated booking" + (" with printable test label" if label_html else ""),
+            },
+        )
+        self._created_shipments[order.order_reference] = res
+        return res
+
+    def schedule_pickup(self, shipment_id: str) -> Optional[PickupResult]:
+        """
+        Simulate pickup scheduling in offline local sandbox mode.
+        """
+        if not hasattr(self, "_scheduled_pickups"):
+            self._scheduled_pickups = {}
+
+        if shipment_id in self._scheduled_pickups:
+            return self._scheduled_pickups[shipment_id]
+
+        ord_obj = getattr(self, "_shipment_orders", {}).get(shipment_id)
+        order_ref = ord_obj.order_reference if ord_obj else shipment_id
+        courier_code = "SANDBOX_COURIER"
+
+        for ref, shp in self._created_shipments.items():
+            if shp.shipment_id == shipment_id:
+                courier_code = shp.courier_code
+                break
+
+        now_dt = datetime.now(timezone.utc)
+        pickup_ref = f"SBX-PKP-{hashlib.sha256(f'{shipment_id}:{now_dt.isoformat()}'.encode()).hexdigest()[:8].upper()}"
+        scheduled_date = now_dt.strftime("%Y-%m-%d")
+        addr_summary = f"{ord_obj.sender.city} ({ord_obj.sender.pin_code})" if ord_obj else "Sandbox Origin Warehouse"
+
+        pickup = PickupResult(
+            pickup_reference=pickup_ref,
+            order_reference=order_ref,
+            courier_code=courier_code,
+            scheduled_date=scheduled_date,
+            time_window="10:00 AM - 01:00 PM IST (Simulated Window)",
+            pickup_address_summary=addr_summary,
+            status="CONFIRMED",
+            is_demo_data=True,
+            disclaimer="LOCAL COURIER SANDBOX: Simulated pickup scheduling confirmation. No physical courier will arrive.",
+            raw_response={
+                "status": "CONFIRMED",
+                "pickup_reference": pickup_ref,
+                "shipment_id": shipment_id,
+                "mode": "LOCAL_COURIER_SANDBOX",
+            },
+        )
+        self._scheduled_pickups[shipment_id] = pickup
+        return pickup
+
+    def get_tracking(self, tracking_number: str) -> TrackingResult:
+        """
+        Generate deterministic simulated tracking events for local sandbox testing.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        events = [
+            TrackingEvent(
+                timestamp=now,
+                status="SANDBOX_MANIFEST_CREATED",
+                location="Sandbox Dispatch Hub",
+                description="Simulated shipping manifest registered in local sandbox [SIMULATED]",
+            ),
+            TrackingEvent(
+                timestamp=now,
+                status="SANDBOX_PACKAGE_RECEIVED",
+                location="Sandbox Sorting Hub",
+                description="Parcel scanned at simulated consolidation facility [SIMULATED]",
+            ),
+            TrackingEvent(
+                timestamp=now,
+                status="SANDBOX_IN_TRANSIT",
+                location="En Route (Sandbox Simulation)",
+                description="Package dispatched in offline test simulation [SIMULATED]",
+            ),
+        ]
+
+        return TrackingResult(
+            tracking_number=tracking_number,
+            courier_code="SANDBOX_COURIER",
+            courier_name="Local Sandbox Carrier Network",
+            current_status="IN_TRANSIT [SIMULATED]",
+            is_delivered=False,
+            estimated_delivery="Within 2-5 business days [SIMULATED SANDBOX]",
+            events=events,
+            is_demo_data=True,
+            missing_evidence=["Offline sandbox simulation; no live carrier tracking connection"],
+            disclaimer="LOCAL COURIER SANDBOX: Simulated status history for offline sandbox testing only.",
+        )

@@ -639,18 +639,18 @@ def generate_label_preview_html(
         f'<div style="background: #fee2e2; border: 1.5px solid #dc2626; color: #b91c1c; '
         f'font-weight: 800; text-align: center; font-size: 11.5px; padding: 5px; '
         f'border-radius: 4px; margin: 8px 0;">'
-        f'⚠️ COLLECT CASH ON DELIVERY: ₹ {cod_amount:,.2f}'
+        f'COLLECT CASH ON DELIVERY: ₹ {cod_amount:,.2f}'
         f'</div>'
     ) if (is_cod and cod_amount > 0) else (
         '<div style="background: #f0fdf4; border: 1.25px solid #16a34a; color: #15803d; '
         'font-weight: 800; text-align: center; font-size: 11px; padding: 5px; '
         'border-radius: 4px; margin: 8px 0;">'
-        '✓ PREPAID SHIPMENT — DO NOT COLLECT CASH'
+        'PREPAID SHIPMENT -- DO NOT COLLECT CASH'
         '</div>'
     )
 
-    shp_ref_str = f"Shipment ID: {esc(shipment_id)} • " if shipment_id else ""
-    pkp_ref_str = f"Pickup Ref: {esc(pickup_reference)} • " if pickup_reference else ""
+    shp_ref_str = f"Shipment ID: {esc(shipment_id)} - " if shipment_id else ""
+    pkp_ref_str = f"Pickup Ref: {esc(pickup_reference)} - " if pickup_reference else ""
 
     return f"""
 <div style="max-width: 490px; margin: 12px auto; background: #ffffff; border: 2px solid #1e293b; border-radius: 8px; padding: 14px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1); line-height: 1.35;">
@@ -670,7 +670,7 @@ def generate_label_preview_html(
 
   <!-- Routing Strip -->
   <div style="background: #f1f5f9; border: 1px solid #94a3b8; border-radius: 4px; padding: 5px 8px; font-size: 11.5px; text-align: center; font-weight: 700; color: #1e293b; margin-bottom: 8px;">
-    PIN: {esc(origin_pin)} &nbsp;➔&nbsp; <b>PIN: {esc(destination_pin)}</b> &nbsp;({esc(destination_city).upper()})
+    PIN: {esc(origin_pin)} &nbsp;-&gt;&nbsp; <b>PIN: {esc(destination_pin)}</b> &nbsp;({esc(destination_city).upper()})
   </div>
 
   <!-- AWB Title & Barcode / QR -->

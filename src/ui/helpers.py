@@ -327,9 +327,11 @@ def freshness_badge(quote: CourierQuote, max_age_seconds: int = 900) -> tuple[st
 
 
 def quote_source_badge(quote: CourierQuote) -> str:
-    """Return a prominent DEMO DATA, SANDBOX, or LIVE label string."""
-    if quote.source_type in ("MANUAL_SANDBOX", "SHIPSANDBOX"):
-        return "[MANUAL SANDBOX] Verified rate entered manually via carrier dashboard"
+    """Return a prominent DEMO DATA, LOCAL SANDBOX, or MANUAL ENTRY label string."""
+    if quote.source_type in ("LOCAL_SANDBOX", "SIMULATED_SANDBOX"):
+        return "[LOCAL SANDBOX] Simulated rate from offline local sandbox environment"
+    if quote.source_type in ("MANUAL_SANDBOX", "MANUAL_ENTRY"):
+        return "[MANUAL ENTRY — NOT API VERIFIED] Rate entered manually via dashboard"
     if quote.is_demo_data:
         return "[DEMO DATA] Simulated rate, not a live carrier price"
     return "[LIVE QUOTE]"

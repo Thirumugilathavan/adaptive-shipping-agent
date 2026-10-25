@@ -31,6 +31,8 @@ class QuoteFreshnessCheck(BaseModel):
     max_age_seconds: float
     is_fresh: bool
     explanation: str
+    has_provenance: bool = True
+    provenance_details: dict[str, Any] = Field(default_factory=dict)
 
 
 class QuoteChangeDetail(BaseModel):
@@ -68,9 +70,33 @@ def check_quote_freshness(
 ) -> QuoteFreshnessCheck:
     """
     Evaluate whether a quote is still fresh according to configurable expiry policy.
+    Enforces provenance checks (source_id, retrieval_timestamp, retrieval_method).
     Never pretends a quote is fresh if it cannot be established.
     """
     now = current_time or datetime.now(timezone.utc)
+    prov_dict = {
+        "source_type": getattr(quote, "source_type", None),
+        "source_id": getattr(quote, "source_id", None),
+        "retrieval_method": getattr(quote, "retrieval_method", None),
+        "evidence_url": getattr(quote, "evidence_url", None),
+        "field_provenance_count": len(getattr(quote, "field_provenance", {})),
+    }
+
+    # Verify provenance presence
+    if not getattr(quote, "source_id", None) or not getattr(quote, "source_type", None):
+        return QuoteFreshnessCheck(
+            quote_id=quote.quote_id,
+            status=QuoteFreshnessStatus.UNVERIFIABLE,
+            retrieval_timestamp=getattr(quote, "retrieval_timestamp", ""),
+            checked_at=now.isoformat(),
+            age_seconds=-1.0,
+            max_age_seconds=float(max_age_seconds),
+            is_fresh=False,
+            explanation="Unverifiable quote: Missing source provenance identifier or source type.",
+            has_provenance=False,
+            provenance_details=prov_dict,
+        )
+
     try:
         # Parse ISO 8601 UTC timestamp
         retrieved_at = datetime.fromisoformat(quote.retrieval_timestamp)
@@ -86,6 +112,8 @@ def check_quote_freshness(
             max_age_seconds=float(max_age_seconds),
             is_fresh=False,
             explanation="Unverifiable retrieval timestamp format.",
+            has_provenance=False,
+            provenance_details=prov_dict,
         )
 
     age_seconds = max(0.0, (now - retrieved_at).total_seconds())
@@ -107,6 +135,8 @@ def check_quote_freshness(
         max_age_seconds=float(max_age_seconds),
         is_fresh=is_fresh,
         explanation=explanation,
+        has_provenance=True,
+        provenance_details=prov_dict,
     )
 
 

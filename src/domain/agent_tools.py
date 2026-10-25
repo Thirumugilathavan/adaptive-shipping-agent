@@ -249,7 +249,7 @@ def execute_check_pin_serviceability_tool(
         is_svc = True
     else:
         classification = PinServiceabilityCategory.SERVICEABLE.value
-        msg = f"Route PIN {origin} ➔ PIN {dest} is fully serviceable across all {len(serviceable_couriers)} couriers."
+        msg = f"Route PIN {origin} -> PIN {dest} is fully serviceable across all {len(serviceable_couriers)} couriers."
         is_svc = True
 
     return {

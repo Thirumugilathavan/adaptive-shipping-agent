@@ -248,14 +248,14 @@ class TestBuildOrderInputFromForm:
         assert order.cod_amount == 1500.0
 
     def test_cod_missing_amount(self):
-        """COD=True but cod_amount=0 → domain model validation error"""
+        """COD=True but cod_amount=0 -> domain model validation error"""
         data = {**VALID_FORM_DATA, "is_cod": True, "cod_amount": 0.0}
         order, errors = build_order_input_from_form(data)
         assert order is None
         assert len(errors) > 0
 
     def test_prepaid_with_cod_amount(self):
-        """COD=False but cod_amount > 0 → domain model validation error"""
+        """COD=False but cod_amount > 0 -> domain model validation error"""
         data = {**VALID_FORM_DATA, "is_cod": False, "cod_amount": 500.0}
         order, errors = build_order_input_from_form(data)
         assert order is None
@@ -539,7 +539,7 @@ class TestApprovalGating:
         assert approval.total_cost == 350.0
 
     def test_state_machine_blocks_dispatch_without_approval(self):
-        """FSM must reject PENDING_APPROVAL → DISPATCHING without an ApprovalRecord."""
+        """FSM must reject PENDING_APPROVAL -> DISPATCHING without an ApprovalRecord."""
         from src.persistence.state_machine import HumanApprovalRequiredError, ShipmentStateMachine
         fsm = ShipmentStateMachine()
         with pytest.raises(HumanApprovalRequiredError):
@@ -550,7 +550,7 @@ class TestApprovalGating:
             )
 
     def test_state_machine_allows_dispatch_with_approval(self):
-        """FSM must allow PENDING_APPROVAL → DISPATCHING with a valid ApprovalRecord."""
+        """FSM must allow PENDING_APPROVAL -> DISPATCHING with a valid ApprovalRecord."""
         from src.persistence.state_machine import ShipmentStateMachine
         fsm = ShipmentStateMachine()
         approval = ApprovalRecord(

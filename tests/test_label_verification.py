@@ -280,20 +280,20 @@ def test_verification_status_canonical_members_and_aliases():
 
 
 @pytest.mark.parametrize("status_input, is_demo, expected_metric", [
-    (VerificationStatus.VERIFIED, False, "✅ VERIFIED"),
-    (VerificationStatus.VERIFIED, True, "🏷️ DEMO VERIFIED"),
-    (VerificationStatus.FAILED, False, "❌ FAILED"),
-    (VerificationStatus.PENDING, False, "⏳ PENDING"),
-    (VerificationStatus.UNVERIFIED, False, "⚠️ UNVERIFIED"),
-    ("VERIFIED", False, "✅ VERIFIED"),
-    ("VERIFIED", True, "🏷️ DEMO VERIFIED"),
-    ("PASS", False, "✅ VERIFIED"),
-    ("FAILED", False, "❌ FAILED"),
-    ("FAIL", False, "❌ FAILED"),
-    ("PENDING", False, "⏳ PENDING"),
-    ("UNSUPPORTED", False, "⚪ UNSUPPORTED"),
-    ("DEMO ONLY", True, "🏷️ DEMO ONLY"),
-    ("NOT VERIFIED", False, "⚠️ UNVERIFIED"),
+    (VerificationStatus.VERIFIED, False, "VERIFIED"),
+    (VerificationStatus.VERIFIED, True, "DEMO VERIFIED"),
+    (VerificationStatus.FAILED, False, "FAILED"),
+    (VerificationStatus.PENDING, False, "PENDING"),
+    (VerificationStatus.UNVERIFIED, False, "UNVERIFIED"),
+    ("VERIFIED", False, "VERIFIED"),
+    ("VERIFIED", True, "DEMO VERIFIED"),
+    ("PASS", False, "VERIFIED"),
+    ("FAILED", False, "FAILED"),
+    ("FAIL", False, "FAILED"),
+    ("PENDING", False, "PENDING"),
+    ("UNSUPPORTED", False, "UNSUPPORTED"),
+    ("DEMO ONLY", True, "DEMO ONLY"),
+    ("NOT VERIFIED", False, "UNVERIFIED"),
 ])
 def test_ui_status_evaluation_resilience(status_input, is_demo, expected_metric):
     """
@@ -303,18 +303,18 @@ def test_ui_status_evaluation_resilience(status_input, is_demo, expected_metric)
     # Mimic the UI evaluation logic in _render_shipment_ready_section
     st_val = getattr(status_input, "value", str(status_input)).upper()
     if st_val in ("VERIFIED", "PASS"):
-        ver_status_val = "🏷️ DEMO VERIFIED" if is_demo else "✅ VERIFIED"
+        ver_status_val = "DEMO VERIFIED" if is_demo else "VERIFIED"
     elif st_val in ("FAILED", "FAIL"):
-        ver_status_val = "❌ FAILED"
+        ver_status_val = "FAILED"
     elif st_val == "PENDING":
-        ver_status_val = "⏳ PENDING"
+        ver_status_val = "PENDING"
     elif st_val in ("UNSUPPORTED",):
-        ver_status_val = "⚪ UNSUPPORTED"
+        ver_status_val = "UNSUPPORTED"
     elif st_val in ("DEMO ONLY", "DEMO_ONLY"):
-        ver_status_val = "🏷️ DEMO ONLY"
+        ver_status_val = "DEMO ONLY"
     elif st_val in ("NOT VERIFIED", "NOT_VERIFIED", "UNVERIFIED"):
-        ver_status_val = "⚠️ UNVERIFIED"
+        ver_status_val = "UNVERIFIED"
     else:
-        ver_status_val = f"⚠️ {st_val}"
+        ver_status_val = st_val
 
     assert ver_status_val == expected_metric

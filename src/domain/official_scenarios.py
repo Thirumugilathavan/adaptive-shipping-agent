@@ -51,13 +51,9 @@ class OfficialScenariosRunner:
         self.dispatch_service = ShipmentDispatchService(self.db, self.audit, self.idem, self.fsm)
         self.verification_service = ShipmentVerificationService(self.audit)
 
-    def run_tc1(self) -> OfficialTestCaseResult:
-        """
-        TC1: Same parcel on three couriers.
-        Input: One parcel with three courier quotes.
-        Expected: All three compared and ranked by total cost, with fee breakdowns.
-        """
-        order = OrderInput(
+    @staticmethod
+    def build_order_tc1() -> OrderInput:
+        return OrderInput(
             order_reference="TC1-PARCEL-THREE-COURIERS",
             sender=Address(
                 name="Sender Tech Park",
@@ -80,6 +76,92 @@ class OfficialScenariosRunner:
             package_type=PackageType.BOX,
             is_cod=False,
         )
+
+    @staticmethod
+    def build_order_tc2() -> OrderInput:
+        return OrderInput(
+            order_reference="TC2-LARGE-LIGHT-BOX",
+            sender=Address(
+                name="Sender Fulfillment",
+                phone="9876543210",
+                street_line1="Sector 18",
+                city="Gurugram",
+                state="Haryana",
+                pin_code="122001",
+            ),
+            recipient=Address(
+                name="Buyer Delivery",
+                phone="9123456780",
+                street_line1="Park Street",
+                city="Kolkata",
+                state="West Bengal",
+                pin_code="700016",
+            ),
+            parcel_weight_kg=0.5,
+            dimensions=Dimensions(length_cm=60.0, width_cm=50.0, height_cm=40.0),
+            package_type=PackageType.BOX,
+            is_cod=False,
+        )
+
+    @staticmethod
+    def build_order_tc3() -> OrderInput:
+        return OrderInput(
+            order_reference="TC3-UNSERVICEABLE-REMOTE-PIN",
+            sender=Address(
+                name="Sender Central",
+                phone="9876543210",
+                street_line1="Main Road",
+                city="New Delhi",
+                state="Delhi",
+                pin_code="110020",
+            ),
+            recipient=Address(
+                name="Buyer Remote",
+                phone="9123456780",
+                street_line1="Hill Top",
+                city="Itanagar",
+                state="Arunachal Pradesh",
+                pin_code="791111",  # Remote prefix '79'
+            ),
+            parcel_weight_kg=2.0,
+            dimensions=Dimensions(length_cm=25.0, width_cm=20.0, height_cm=15.0),
+            package_type=PackageType.BOX,
+            is_cod=False,
+        )
+
+    @staticmethod
+    def build_order_tc4() -> OrderInput:
+        return OrderInput(
+            order_reference="TC4-LABEL-AWB-VERIFIED",
+            sender=Address(
+                name="Alpha Logistics Hub",
+                phone="9876543210",
+                street_line1="Sector 62",
+                city="Noida",
+                state="Uttar Pradesh",
+                pin_code="201309",
+            ),
+            recipient=Address(
+                name="Beta Customer Care",
+                phone="9123456780",
+                street_line1="Anna Salai",
+                city="Chennai",
+                state="Tamil Nadu",
+                pin_code="600002",
+            ),
+            parcel_weight_kg=1.5,
+            dimensions=Dimensions(length_cm=30.0, width_cm=20.0, height_cm=10.0),
+            package_type=PackageType.BOX,
+            is_cod=False,
+        )
+
+    def run_tc1(self) -> OfficialTestCaseResult:
+        """
+        TC1: Same parcel on three couriers.
+        Input: One parcel with three courier quotes.
+        Expected: All three compared and ranked by total cost, with fee breakdowns.
+        """
+        order = self.build_order_tc1()
 
         adapter = DemoShippingAdapter()
         quotes = adapter.get_rates(order)
@@ -143,29 +225,7 @@ class OfficialScenariosRunner:
         Input: Light parcel with large dimensions.
         Expected: Volumetric weight is applied correctly according to each applicable courier divisor.
         """
-        order = OrderInput(
-            order_reference="TC2-LARGE-LIGHT-BOX",
-            sender=Address(
-                name="Sender Fulfillment",
-                phone="9876543210",
-                street_line1="Sector 18",
-                city="Gurugram",
-                state="Haryana",
-                pin_code="122001",
-            ),
-            recipient=Address(
-                name="Buyer Delivery",
-                phone="9123456780",
-                street_line1="Park Street",
-                city="Kolkata",
-                state="West Bengal",
-                pin_code="700016",
-            ),
-            parcel_weight_kg=0.5,
-            dimensions=Dimensions(length_cm=60.0, width_cm=50.0, height_cm=40.0),
-            package_type=PackageType.BOX,
-            is_cod=False,
-        )
+        order = self.build_order_tc2()
 
         adapter = DemoShippingAdapter()
         quotes = adapter.get_rates(order)
@@ -226,29 +286,7 @@ class OfficialScenariosRunner:
         Input: A destination that the provider marks unserviceable for a courier (e.g., remote prefix '79').
         Expected: That courier is excluded and the reason is recorded. Cost is never silently zero.
         """
-        order = OrderInput(
-            order_reference="TC3-UNSERVICEABLE-REMOTE-PIN",
-            sender=Address(
-                name="Sender Central",
-                phone="9876543210",
-                street_line1="Main Road",
-                city="New Delhi",
-                state="Delhi",
-                pin_code="110020",
-            ),
-            recipient=Address(
-                name="Buyer Remote",
-                phone="9123456780",
-                street_line1="Hill Top",
-                city="Itanagar",
-                state="Arunachal Pradesh",
-                pin_code="791111",  # Remote prefix '79'
-            ),
-            parcel_weight_kg=2.0,
-            dimensions=Dimensions(length_cm=25.0, width_cm=20.0, height_cm=15.0),
-            package_type=PackageType.BOX,
-            is_cod=False,
-        )
+        order = self.build_order_tc3()
 
         adapter = DemoShippingAdapter()
         quotes = adapter.get_rates(order)
@@ -303,29 +341,7 @@ class OfficialScenariosRunner:
         Input: An approved order and eligible courier.
         Expected: A label is created, the AWB matches the order, and the pickup schedule is checked.
         """
-        order = OrderInput(
-            order_reference="TC4-LABEL-AWB-VERIFIED",
-            sender=Address(
-                name="Alpha Logistics Hub",
-                phone="9876543210",
-                street_line1="Sector 62",
-                city="Noida",
-                state="Uttar Pradesh",
-                pin_code="201309",
-            ),
-            recipient=Address(
-                name="Beta Customer Care",
-                phone="9123456780",
-                street_line1="Anna Salai",
-                city="Chennai",
-                state="Tamil Nadu",
-                pin_code="600002",
-            ),
-            parcel_weight_kg=1.5,
-            dimensions=Dimensions(length_cm=30.0, width_cm=20.0, height_cm=10.0),
-            package_type=PackageType.BOX,
-            is_cod=False,
-        )
+        order = self.build_order_tc4()
 
         adapter = DemoShippingAdapter()
         quotes = adapter.get_rates(order)

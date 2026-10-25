@@ -74,6 +74,10 @@ class RankingResult(BaseModel):
     trade_off_analysis: str = ""
     loss_reasons: dict[str, list[str]] = Field(default_factory=dict)
     comparison_table: list[dict[str, Any]] = Field(default_factory=list)
+    decision_provenance: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Audit provenance linking ranking decisions to retrieved source quotes and field values"
+    )
     disclaimer: str = (
         "RANKING DISCLOSURE: Evaluated based on provided constraints and active provider quotes. "
         "Demo quotes are simulated and cannot be used for commercial fulfillment."
@@ -406,10 +410,16 @@ def rank_couriers(
             "is_winner": is_w,
             "outcome_status": "WINNER" if is_w else "ELIGIBLE_ALTERNATIVE",
             "reason_summary": summary_r,
+            "source_type": q.source_type,
+            "source_id": q.source_id,
+            "evidence_url": q.evidence_url,
+            "retrieval_timestamp": q.retrieval_timestamp,
+            "retrieval_method": getattr(q, "retrieval_method", "MOCK_AGGREGATOR_INTERFACE"),
         })
 
     # 2. Ineligible couriers
     for inel in ineligible_list:
+        matching_q = next((orig for orig in quotes if orig.quote_id == inel.quote_id), None)
         loss_reasons[inel.courier_code] = inel.rejection_reasons
         comparison_table.append({
             "quote_id": inel.quote_id,
@@ -430,7 +440,40 @@ def rank_couriers(
             "is_winner": False,
             "outcome_status": "EXCLUDED",
             "reason_summary": "; ".join(inel.rejection_reasons),
+            "source_type": inel.source_type,
+            "source_id": matching_q.source_id if matching_q else "unknown",
+            "evidence_url": matching_q.evidence_url if matching_q else None,
+            "retrieval_timestamp": matching_q.retrieval_timestamp if matching_q else "",
+            "retrieval_method": getattr(matching_q, "retrieval_method", "MOCK_AGGREGATOR_INTERFACE") if matching_q else "UNKNOWN",
         })
+
+    # 3. Decision Provenance
+    decision_provenance: dict[str, Any] = {}
+    if winner:
+        decision_provenance = {
+            "winner_quote_id": winner.quote.quote_id,
+            "winner_courier_code": winner.quote.courier_code,
+            "winner_courier_name": winner.quote.courier_name,
+            "winner_total_cost": winner.total_cost,
+            "winner_estimated_delivery_days": winner.estimated_delivery_days,
+            "source_type": winner.quote.source_type,
+            "source_identifier": winner.quote.source_id,
+            "source_url_or_endpoint": winner.quote.evidence_url,
+            "retrieval_timestamp": winner.quote.retrieval_timestamp,
+            "retrieval_method": getattr(winner.quote, "retrieval_method", "MOCK_AGGREGATOR_INTERFACE"),
+            "evaluated_quote_ids": [q.quote_id for q in quotes],
+            "field_provenance_summary": {
+                k: {
+                    "extracted_value": getattr(p, "extracted_value", None),
+                    "source_type": getattr(p, "source_type", None),
+                    "source_identifier": getattr(p, "source_identifier", None),
+                    "source_url_or_endpoint": getattr(p, "source_url_or_endpoint", None),
+                    "retrieval_timestamp": getattr(p, "retrieval_timestamp", None),
+                    "validation_status": getattr(p, "validation_status", None),
+                }
+                for k, p in getattr(winner.quote, "field_provenance", {}).items()
+            },
+        }
 
     return RankingResult(
         mode=prefs.mode,
@@ -448,4 +491,5 @@ def rank_couriers(
         trade_off_analysis=trade_off_text,
         loss_reasons=loss_reasons,
         comparison_table=comparison_table,
+        decision_provenance=decision_provenance,
     )

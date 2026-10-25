@@ -21,6 +21,7 @@ const state = {
   lastDispatchResult: null,
   providerMode: 'demo',
   scenarios: [],
+  officialTestCases: [],
   testRuns: [],
 };
 
@@ -29,6 +30,29 @@ const elements = {
   tabButtons: document.querySelectorAll('.tab-btn'),
   tabPanes: document.querySelectorAll('.tab-pane'),
   providerSelect: document.getElementById('providerModeSelect'),
+    providerModeBanner: document.getElementById('providerModeBanner'),
+  providerBannerContent: document.getElementById('providerBannerContent'),
+  providerBannerIcon: document.getElementById('providerBannerIcon'),
+  providerBannerText: document.getElementById('providerBannerText'),
+  providerBannerActions: document.getElementById('providerBannerActions'),
+  btnOpenManualQuoteModal: document.getElementById('btnOpenManualQuoteModal'),
+  modalManualSandbox: document.getElementById('modalManualSandbox'),
+  btnOpenDashboardExportModal: document.getElementById('btnOpenDashboardExportModal'),
+  modalDashboardExport: document.getElementById('modalDashboardExport'),
+  modalExportCloseBtn: document.getElementById('modalExportCloseBtn'),
+  dashboardExportForm: document.getElementById('dashboardExportForm'),
+  modalFieldProvenance: document.getElementById('modalFieldProvenance'),
+  modalProvCloseBtn: document.getElementById('modalProvCloseBtn'),
+  modalProvTitle: document.getElementById('modalProvTitle'),
+  modalProvSubtitle: document.getElementById('modalProvSubtitle'),
+  modalProvTableBody: document.getElementById('modalProvTableBody'),
+  modalProvRawBox: document.getElementById('modalProvRawBox'),
+  modalProvRawPre: document.getElementById('modalProvRawPre'),
+  advProvenanceBox: document.getElementById('advProvenanceBox'),
+  advProvBadge: document.getElementById('advProvBadge'),
+  advProvDetails: document.getElementById('advProvDetails'),
+  modalManualCloseBtn: document.getElementById('modalManualCloseBtn'),
+  manualQuoteForm: document.getElementById('manualQuoteForm'),
 
   // Stepper & Wizard Panels
   wizardStepper: document.getElementById('wizardStepper'),
@@ -108,7 +132,15 @@ const elements = {
   btnExpandLabel: document.getElementById('btnExpandLabel'),
   btnStartNewShipment: document.getElementById('btnStartNewShipment'),
 
-  // Evaluator
+  // Evaluator & Official Test Cases
+  officialTcGrid: document.getElementById('officialTcGrid'),
+  btnRunAllOfficialTc: document.getElementById('btnRunAllOfficialTc'),
+  btnResetOfficialTc: document.getElementById('btnResetOfficialTc'),
+  officialMetricPassed: document.getElementById('officialMetricPassed'),
+  officialMetricFailed: document.getElementById('officialMetricFailed'),
+  officialMetricNotRun: document.getElementById('officialMetricNotRun'),
+  officialMetricAudit: document.getElementById('officialMetricAudit'),
+
   scenariosGrid: document.getElementById('scenariosGrid'),
   btnRunAllScenarios: document.getElementById('btnRunAllScenarios'),
   btnClearTestRuns: document.getElementById('btnClearTestRuns'),
@@ -159,6 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupEvaluatorTab();
   setupPackagingTab();
   setupAuditTab();
+  setupProviderControls();
   setupModal();
   setupMlPrediction();
   updateLiveVolumetric();
@@ -270,6 +303,7 @@ function setupTabs() {
       }
 
       if (targetTabId === 'tab-evaluator') {
+        loadOfficialScenarios();
         loadScenarios();
         loadTestRuns();
       } else if (targetTabId === 'tab-packaging') {
@@ -280,11 +314,7 @@ function setupTabs() {
     });
   });
 
-  if (elements.providerSelect) {
-    elements.providerSelect.addEventListener('change', (e) => {
-      state.providerMode = e.target.value;
-    });
-  }
+// providerSelect managed in setupProviderControls
 }
 
 // -----------------------------------------------------------------------------
@@ -503,6 +533,26 @@ function renderRateResults(data) {
 
       state.selectedQuoteId = data.selected_quote_id || rec.quote_id;
     }
+
+    if (elements.advProvenanceBox) {
+      const dp = (data.ranking && data.ranking.decision_provenance) || (data.decision_provenance);
+      if (dp && dp.winner_quote_id) {
+        elements.advProvenanceBox.classList.remove('hidden');
+        if (elements.advProvBadge) {
+          elements.advProvBadge.textContent = dp.source_type || 'PROVENANCE VERIFIED';
+        }
+        if (elements.advProvDetails) {
+          elements.advProvDetails.innerHTML = `
+            <div>Winning Quote ID: <strong style="color:var(--primary); font-family:monospace;">${dp.winner_quote_id}</strong> (${dp.winner_courier_name})</div>
+            <div>Source: <strong>${dp.source_identifier || dp.source_type}</strong> &bull; Endpoint / URL: <span style="font-family:monospace; background:#e2e8f0; padding:1px 4px; border-radius:3px;">${dp.source_url_or_endpoint || 'local://mock'}</span></div>
+            <div>Extracted At: <strong>${dp.retrieval_timestamp}</strong> via <strong>${dp.retrieval_method}</strong></div>
+            <div style="margin-top:4px;"><a href="javascript:void(0)" onclick="viewFieldProvenance('${dp.winner_quote_id}', event)" style="color:var(--primary); font-weight:600;">Inspect Full Field-Level Provenance & Verification Audit &rarr;</a></div>
+          `;
+        }
+      } else {
+        elements.advProvenanceBox.classList.add('hidden');
+      }
+    }
   }
 
   // 3. Render Courier Cards
@@ -530,12 +580,18 @@ function renderRateResults(data) {
             <div class="courier-name-row">
               <span class="courier-name">${quote.courier_name}</span>
               ${isWinner ? '<span class="badge-recommendation">Recommended Winner</span>' : ''}
+              ${quote.source_type === 'LOCAL_SANDBOX' ? '<span class="badge-demo-flag" style="font-size:10px; padding:1px 6px; background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">LOCAL SANDBOX</span>' : (quote.source_type === 'MANUAL_SANDBOX' ? '<span class="badge-demo-flag" style="font-size:10px; padding:1px 6px; background:#fef3c7; color:#92400e; border-color:#fde68a;">MANUAL ENTRY — NOT API VERIFIED</span>' : '<span class="badge-demo-flag" style="font-size:10px; padding:1px 6px;">DEMO DATA</span>')}
               <span class="courier-mode-badge">${quote.service_type}</span>
             </div>
             <div class="courier-meta">
               <span>Estimated Delivery: <strong>${quote.estimated_delivery_days || 3} Business Days</strong></span>
               <span>Billing Slab: <strong>${slabKg}</strong></span>
               ${!isSvc ? '<span class="text-danger" style="font-weight:700;">Unserviceable Route / Excluded</span>' : ''}
+            </div>
+            <div class="courier-provenance-strip" style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+              <span>Source: <strong style="color: var(--text-main);">${quote.source_id || quote.source_type}</strong></span>
+              <span>Retrieved: <strong>${quote.retrieval_timestamp ? quote.retrieval_timestamp.split('T')[0] + ' ' + (quote.retrieval_timestamp.split('T')[1] || '').substring(0,8) + ' UTC' : 'N/A'}</strong></span>
+              <span class="provenance-toggle" style="color: var(--primary); cursor: pointer; text-decoration: underline; font-weight: 600;" onclick="viewFieldProvenance('${quote.quote_id}', event)">[View Field Provenance]</span>
             </div>
           </div>
           <div class="courier-pricing">
@@ -797,10 +853,27 @@ function renderShipmentReady(data) {
 }
 
 // -----------------------------------------------------------------------------
-// Evaluator 10-Scenario Lab
+// Evaluator: Official Competition Test Cases & 10 Mock Scenarios
 // -----------------------------------------------------------------------------
 
 function setupEvaluatorTab() {
+  if (elements.btnRunAllOfficialTc) {
+    elements.btnRunAllOfficialTc.addEventListener('click', async () => {
+      await runAllOfficialTestCases();
+    });
+  }
+
+  if (elements.btnResetOfficialTc) {
+    elements.btnResetOfficialTc.addEventListener('click', async () => {
+      if (confirm('Reset official test case results and clear history?')) {
+        await fetch('/api/scenarios/test-runs/clear', { method: 'POST' });
+        await loadOfficialScenarios();
+        await loadScenarios();
+        await loadTestRuns();
+      }
+    });
+  }
+
   elements.btnRunAllScenarios.addEventListener('click', async () => {
     elements.btnRunAllScenarios.disabled = true;
     elements.btnRunAllScenarios.textContent = 'Running All 10 Scenarios...';
@@ -818,10 +891,240 @@ function setupEvaluatorTab() {
   elements.btnClearTestRuns.addEventListener('click', async () => {
     if (confirm('Clear all recorded test case execution runs from SQLite?')) {
       await fetch('/api/scenarios/test-runs/clear', { method: 'POST' });
+      await loadOfficialScenarios();
+      await loadScenarios();
       await loadTestRuns();
     }
   });
+
+  // Initial load
+  loadOfficialScenarios();
+  loadScenarios();
+  loadTestRuns();
 }
+
+// -----------------------------------------------------------------------------
+// Official Competition Test Cases (TC1 – TC4)
+// -----------------------------------------------------------------------------
+
+async function loadOfficialScenarios() {
+  try {
+    const res = await fetch('/api/official-scenarios');
+    state.officialTestCases = await res.json();
+    renderOfficialTcGrid();
+    updateOfficialMetrics();
+  } catch (err) {
+    console.error('Failed to load official test cases:', err);
+  }
+}
+
+function updateOfficialMetrics() {
+  if (!state.officialTestCases) return;
+  const passed = state.officialTestCases.filter(t => t.status === 'PASSED').length;
+  const failed = state.officialTestCases.filter(t => t.status === 'FAILED' || t.status === 'ERROR').length;
+  const notRun = state.officialTestCases.filter(t => !t.status || t.status === 'NOT RUN').length;
+
+  if (elements.officialMetricPassed) elements.officialMetricPassed.textContent = `${passed} / 4`;
+  if (elements.officialMetricFailed) elements.officialMetricFailed.textContent = `${failed}`;
+  if (elements.officialMetricNotRun) elements.officialMetricNotRun.textContent = `${notRun}`;
+  if (elements.officialMetricAudit) {
+    elements.officialMetricAudit.textContent = passed === 4 ? '100% Verified' : '5-Point Audit';
+  }
+}
+
+function renderOfficialTcGrid() {
+  if (!elements.officialTcGrid) return;
+  elements.officialTcGrid.innerHTML = '';
+
+  state.officialTestCases.forEach(tc => {
+    const isPassed = tc.status === 'PASSED';
+    const isFailed = tc.status === 'FAILED' || tc.status === 'ERROR';
+    const isNotRun = !tc.status || tc.status === 'NOT RUN';
+
+    let pillClass = 'status-pill-not-run';
+    let pillText = 'NOT RUN';
+    if (isPassed) { pillClass = 'status-passed'; pillText = 'PASSED'; }
+    else if (isFailed) { pillClass = 'status-failed'; pillText = tc.status; }
+
+    const actualClass = isNotRun ? 'actual-not-run' : (isPassed ? '' : 'actual-failed');
+    const actualText = tc.actual_outcome || 'Not run yet — click "Run Test" below to execute verification.';
+
+    const card = document.createElement('div');
+    card.className = 'official-tc-card';
+    card.id = `official-card-${tc.id}`;
+    card.innerHTML = `
+      <div>
+        <div class="tc-card-header">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="scenario-badge" style="background:#1e3a8a; color:#ffffff; font-weight:700;">${tc.id}</span>
+            <span class="badge-tc-flag">OFFICIAL TEST</span>
+          </div>
+          <span class="scenario-status-pill ${pillClass}" id="status-pill-${tc.id}">${pillText}</span>
+        </div>
+        
+        <h4 class="tc-title" style="margin-top:10px;">${tc.title}</h4>
+        <p class="tc-subtitle">${tc.subtitle || tc.description}</p>
+
+        <div class="tc-route-info" style="margin-top:10px;">
+          <span class="tc-spec-badge">Route: ${tc.route}</span>
+          <span class="tc-spec-badge">Size: ${tc.dimensions}</span>
+          <span class="tc-spec-badge">Weight: ${tc.weight_kg} kg</span>
+        </div>
+
+        <div class="outcome-container">
+          <div class="outcome-box expected-outcome-box">
+            <strong>Expected Outcome</strong>
+            <span>${tc.expected}</span>
+          </div>
+          <div class="outcome-box actual-outcome-box ${actualClass}" id="actual-box-${tc.id}">
+            <strong>Actual Outcome</strong>
+            <span id="actual-text-${tc.id}">${actualText}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="scenario-actions">
+        <button class="btn-primary btn-sm" onclick="runOfficialTestCase('${tc.id}')" id="btn-run-${tc.id}">Run Test</button>
+        <button class="btn-outline btn-sm" onclick="loadOfficialTestCaseIntoForm('${tc.id}')">Load into Form</button>
+        <button class="btn-ghost btn-sm" onclick="viewOfficialEvidence('${tc.id}')">View Evidence</button>
+      </div>
+    `;
+    elements.officialTcGrid.appendChild(card);
+  });
+}
+
+window.runOfficialTestCase = async function(tcId) {
+  const btn = document.getElementById(`btn-run-${tcId}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Running...';
+  }
+  try {
+    const res = await fetch(`/api/official-scenarios/${tcId}/run`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(`Error running test case ${tcId}: ${data.detail || 'Execution failed'}`);
+      return;
+    }
+
+    // Update in state
+    const tc = state.officialTestCases.find(t => t.id === tcId);
+    if (tc) {
+      tc.status = data.status;
+      tc.actual_outcome = data.actual_result;
+      tc.explanation = data.explanation;
+      tc.evidence = data.evidence_references;
+      tc.timestamp = data.timestamp;
+    }
+
+    // Update card elements
+    const pill = document.getElementById(`status-pill-${tcId}`);
+    if (pill) {
+      pill.className = `scenario-status-pill ${data.status === 'PASSED' ? 'status-passed' : 'status-failed'}`;
+      pill.textContent = data.status;
+    }
+
+    const box = document.getElementById(`actual-box-${tcId}`);
+    const text = document.getElementById(`actual-text-${tcId}`);
+    if (box && text) {
+      box.className = `outcome-box actual-outcome-box ${data.status === 'PASSED' ? '' : 'actual-failed'}`;
+      text.textContent = data.actual_result;
+    }
+
+    updateOfficialMetrics();
+    await loadTestRuns();
+    return data;
+  } catch (err) {
+    alert(`Error executing ${tcId}: ${err.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Run Test';
+    }
+  }
+};
+
+window.runAllOfficialTestCases = async function() {
+  if (elements.btnRunAllOfficialTc) {
+    elements.btnRunAllOfficialTc.disabled = true;
+    elements.btnRunAllOfficialTc.textContent = 'Running All 4 Tests...';
+  }
+  try {
+    const res = await fetch('/api/official-scenarios/run', { method: 'POST' });
+    const results = await res.json();
+    await loadOfficialScenarios();
+    await loadTestRuns();
+    return results;
+  } catch (err) {
+    alert(`Error running all official tests: ${err.message}`);
+  } finally {
+    if (elements.btnRunAllOfficialTc) {
+      elements.btnRunAllOfficialTc.disabled = false;
+      elements.btnRunAllOfficialTc.textContent = 'Run All 4 Official Tests';
+    }
+  }
+};
+
+window.loadOfficialTestCaseIntoForm = async function(tcId) {
+  try {
+    const res = await fetch(`/api/official-scenarios/${tcId}/load`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(`Failed to load ${tcId}: ${data.detail}`);
+      return;
+    }
+
+    // Switch to rates tab
+    elements.tabButtons[0].click();
+    
+    elements.dimLength.value = data.order.dimensions.length_cm;
+    elements.dimWidth.value = data.order.dimensions.width_cm;
+    elements.dimHeight.value = data.order.dimensions.height_cm;
+    elements.dimWeight.value = data.order.parcel_weight_kg;
+    document.getElementById('senderPin').value = data.order.sender.pin_code;
+    document.getElementById('recipientPin').value = data.order.recipient.pin_code;
+    document.getElementById('packageType').value = data.order.package_type;
+    elements.paymentMode.value = data.order.is_cod ? 'cod' : 'prepaid';
+    if (data.order.is_cod) {
+      elements.codGroup.classList.remove('hidden');
+      elements.codAmount.value = data.order.cod_amount;
+    } else {
+      elements.codGroup.classList.add('hidden');
+    }
+
+    updateLiveVolumetric();
+    renderRateResults(data);
+
+    // Jump to Step 2 so user sees loaded rates immediately
+    goToWizardStep(2);
+  } catch (err) {
+    alert(`Error loading ${tcId}: ${err.message}`);
+  }
+};
+
+window.viewOfficialEvidence = function(tcId) {
+  const tc = state.officialTestCases.find(t => t.id === tcId);
+  if (!tc || !tc.evidence) {
+    alert(`No evidence found for ${tcId}. Please run the test case first.`);
+    return;
+  }
+
+  showModal(`Official Evidence: ${tc.title}`, `
+    <div style="margin-bottom:12px;">
+      <p style="margin:0 0 4px 0; font-size:13px;"><strong>Status:</strong> <span class="${tc.status === 'PASSED' ? 'text-success' : 'text-danger'}">${tc.status}</span></p>
+      <p style="margin:0 0 4px 0; font-size:13px;"><strong>Expected:</strong> ${tc.expected}</p>
+      <p style="margin:0 0 4px 0; font-size:13px;"><strong>Actual:</strong> ${tc.actual_outcome || 'N/A'}</p>
+      <p style="margin:0; font-size:13px;"><strong>Explanation:</strong> ${tc.explanation || 'N/A'}</p>
+    </div>
+    <div style="font-family:var(--font-mono);font-size:12px;background:#f8fafc;color:#0f172a;border:1px solid #cbd5e1;padding:14px;border-radius:6px;max-height:400px;overflow:auto;">
+      <pre>${JSON.stringify(tc.evidence, null, 2)}</pre>
+    </div>
+  `);
+};
+
+// -----------------------------------------------------------------------------
+// 10 Evaluator Edge-Case Scenarios (Demo A through Demo J)
+// -----------------------------------------------------------------------------
 
 async function loadScenarios() {
   try {
@@ -836,20 +1139,46 @@ async function loadScenarios() {
 function renderScenariosGrid() {
   elements.scenariosGrid.innerHTML = '';
   state.scenarios.forEach(sc => {
+    const isPassed = sc.status === 'PASSED';
+    const isFailed = sc.status === 'FAILED' || sc.status === 'ERROR';
+    const isNotRun = !sc.status || sc.status === 'NOT RUN';
+
+    let pillClass = 'status-pill-not-run';
+    let pillText = 'NOT RUN';
+    if (isPassed) { pillClass = 'status-passed'; pillText = 'PASSED'; }
+    else if (isFailed) { pillClass = 'status-failed'; pillText = sc.status; }
+
+    const actualClass = isNotRun ? 'actual-not-run' : (isPassed ? '' : 'actual-failed');
+    const actualText = sc.actual_outcome || 'Not run yet — click "Run Test" below to execute scenario.';
+
     const card = document.createElement('div');
     card.className = 'scenario-card';
     card.innerHTML = `
       <div>
-        <div style="display:flex;align-items:center;">
-          <span class="scenario-badge">${sc.id}</span>
-          <span class="scenario-status-pill hidden" id="status-pill-${sc.id}">NOT RUN</span>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;">
+            <span class="scenario-badge">${sc.id}</span>
+            <span class="badge-demo-flag" style="font-size:10px; padding:1px 6px;">MOCK DATA</span>
+          </div>
+          <span class="scenario-status-pill ${pillClass}" id="status-pill-${sc.id}">${pillText}</span>
         </div>
         <h4 class="scenario-title">${sc.title}</h4>
         <p class="scenario-desc">${sc.description}</p>
+
+        <div class="outcome-container">
+          <div class="outcome-box expected-outcome-box">
+            <strong>Expected Outcome</strong>
+            <span>${sc.expected}</span>
+          </div>
+          <div class="outcome-box actual-outcome-box ${actualClass}" id="actual-sc-box-${sc.id}">
+            <strong>Actual Outcome</strong>
+            <span id="actual-sc-text-${sc.id}">${actualText}</span>
+          </div>
+        </div>
       </div>
       <div class="scenario-actions">
         <button class="btn-primary btn-sm" onclick="loadScenarioIntoForm('${sc.id}')">Load into Form</button>
-        <button class="btn-outline btn-sm" onclick="runScenario('${sc.id}')">Run Test</button>
+        <button class="btn-outline btn-sm" onclick="runScenario('${sc.id}')" id="btn-run-sc-${sc.id}">Run Test</button>
       </div>
     `;
     elements.scenariosGrid.appendChild(card);
@@ -894,6 +1223,11 @@ window.loadScenarioIntoForm = async function(scId) {
 };
 
 window.runScenario = async function(scId) {
+  const btn = document.getElementById(`btn-run-sc-${scId}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Running...';
+  }
   try {
     const res = await fetch(`/api/scenarios/${scId}/run`, { method: 'POST' });
     const data = await res.json();
@@ -901,16 +1235,36 @@ window.runScenario = async function(scId) {
     // Update pill
     const pill = document.getElementById(`status-pill-${scId}`);
     if (pill) {
-      pill.classList.remove('hidden', 'status-passed', 'status-failed');
+      pill.classList.remove('hidden', 'status-passed', 'status-failed', 'status-pill-not-run');
       const isPassed = data.status === 'PASSED';
       pill.classList.add(isPassed ? 'status-passed' : 'status-failed');
       pill.textContent = data.status;
+    }
+
+    // Update actual outcome callout
+    const box = document.getElementById(`actual-sc-box-${scId}`);
+    const text = document.getElementById(`actual-sc-text-${scId}`);
+    if (box && text) {
+      box.className = `outcome-box actual-outcome-box ${data.status === 'PASSED' ? '' : 'actual-failed'}`;
+      text.textContent = data.actual_outcome || data.actual_result || 'Executed successfully.';
+    }
+
+    // Also update in state.scenarios
+    const sc = state.scenarios.find(s => s.id === scId);
+    if (sc) {
+      sc.status = data.status;
+      sc.actual_outcome = data.actual_outcome || data.actual_result;
     }
 
     await loadTestRuns();
     return data;
   } catch (err) {
     alert(`Error executing scenario ${scId}: ${err.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Run Test';
+    }
   }
 };
 
@@ -965,6 +1319,164 @@ window.viewEvidence = function(runId) {
 };
 
 // -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// Provider Controls & Sandbox Mode Management
+// -----------------------------------------------------------------------------
+
+function setupProviderControls() {
+  loadProviderStatus();
+
+  if (elements.providerSelect) {
+    elements.providerSelect.addEventListener('change', async (e) => {
+      const newMode = e.target.value;
+      try {
+        const res = await fetch('/api/provider/mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: newMode }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(`Failed to switch provider mode: ${data.detail}`);
+          return;
+        }
+        state.providerMode = data.active_mode;
+        await loadProviderStatus();
+      } catch (err) {
+        alert(`Error switching provider mode: ${err.message}`);
+      }
+    });
+  }
+
+  if (elements.btnOpenManualQuoteModal) {
+    elements.btnOpenManualQuoteModal.addEventListener('click', () => {
+      openManualSandboxModal();
+    });
+  }
+
+  if (elements.modalManualCloseBtn) {
+    elements.modalManualCloseBtn.addEventListener('click', () => {
+      closeManualSandboxModal();
+    });
+  }
+
+  if (elements.manualQuoteForm) {
+    elements.manualQuoteForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const orderRef = state.activeOrder ? state.activeOrder.order_reference : document.getElementById('orderRef').value.trim();
+      if (!orderRef) {
+        alert('Please complete Step 1 or enter an Order Reference before adding manual quotes.');
+        return;
+      }
+
+      const payload = {
+        order_reference: orderRef,
+        courier_name: document.getElementById('mqCourierName').value.trim(),
+        service_type: document.getElementById('mqServiceType').value.trim(),
+        estimated_delivery_days: parseInt(document.getElementById('mqEstDays').value) || 3,
+        base_freight: parseFloat(document.getElementById('mqBase').value) || 0.0,
+        fuel_surcharge: parseFloat(document.getElementById('mqFuel').value) || 0.0,
+        tax_amount: parseFloat(document.getElementById('mqTax').value) || 0.0,
+        total_cost: parseFloat(document.getElementById('mqTotal').value) || 0.0,
+        dashboard_reference: document.getElementById('mqDashboardRef').value.trim() || null,
+        source_identifier: (document.getElementById('mqSourceId')?.value.trim()) || 'operator-dashboard-manual',
+        source_url: (document.getElementById('mqSourceUrl')?.value.trim()) || (document.getElementById('mqDashboardRef')?.value.trim()) || null,
+        notes: document.getElementById('mqNotes').value.trim() || null,
+      };
+
+      try {
+        const res = await fetch('/api/manual-sandbox/quote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(`Failed to save manual quote: ${data.detail}`);
+          return;
+        }
+
+        closeManualSandboxModal();
+        elements.manualQuoteForm.reset();
+
+        if (state.activeQuotes) {
+          const newQ = data.quote;
+          state.activeQuotes = state.activeQuotes.filter(q => q.quote_id !== newQ.quote_id).concat([newQ]);
+          renderRateResults({
+            order: state.activeOrder,
+            quotes: state.activeQuotes,
+            ranking: data.selected_winner ? { selected_winner: { quote: data.selected_winner, rank: 1, total_cost: data.selected_winner.cost_breakdown.total_cost } } : state.rankingResult,
+            advisor: state.advisorResult,
+          });
+        }
+      } catch (err) {
+        alert(`Error recording manual quote: ${err.message}`);
+      }
+    });
+  }
+}
+
+async function loadProviderStatus() {
+  try {
+    const res = await fetch('/api/provider/status');
+    const status = await res.json();
+    state.providerMode = status.active_mode;
+    if (elements.providerSelect) {
+      elements.providerSelect.value = (status.active_mode === 'sandbox') ? 'local_sandbox' : status.active_mode;
+    }
+    updateProviderBanner(status);
+  } catch (err) {
+    console.error('Failed to load provider status:', err);
+  }
+}
+
+function updateProviderBanner(status) {
+  if (!elements.providerModeBanner) return;
+
+  const mode = status.active_mode;
+  elements.providerModeBanner.className = 'provider-mode-banner';
+  elements.providerBannerActions.innerHTML = '';
+
+  if (mode === 'demo') {
+    elements.providerModeBanner.classList.add('banner-demo');
+    elements.providerBannerIcon.textContent = '[DEMO]';
+    elements.providerBannerText.innerHTML = 'Operating in <strong>Local Demo Mode</strong> (100% offline simulated carriers). Quotes, AWBs, and tracking are simulated demonstration data.';
+    if (elements.btnOpenManualQuoteModal) elements.btnOpenManualQuoteModal.classList.add('hidden');
+  } else if (mode === 'sandbox' || mode === 'local_sandbox') {
+    elements.providerModeBanner.classList.add('banner-sandbox');
+    elements.providerBannerIcon.textContent = '[SANDBOX]';
+    elements.providerBannerText.innerHTML = 'Operating in <strong>Local Courier Sandbox (Simulation)</strong>. Deterministic offline sandbox test environment using synthetic carrier data. Zero external API calls or credentials required.';
+    if (elements.btnOpenManualQuoteModal) elements.btnOpenManualQuoteModal.classList.add('hidden');
+  } else if (mode === 'manual_sandbox') {
+    elements.providerModeBanner.classList.add('banner-manual');
+    elements.providerBannerIcon.textContent = '[MANUAL]';
+    elements.providerBannerText.innerHTML = 'Operating in <strong>Manual Sandbox Entry Mode</strong>. Record rates, SLAs, and tracking references manually copied from your courier sandbox dashboard. Labeled as <strong>Manual Entry — Not API Verified</strong>.';
+    elements.providerBannerActions.innerHTML = `<button class="btn-primary btn-sm" onclick="openManualSandboxModal()">Add Manual Quote</button>`;
+    if (elements.btnOpenManualQuoteModal) elements.btnOpenManualQuoteModal.classList.remove('hidden');
+    if (elements.btnOpenDashboardExportModal) elements.btnOpenDashboardExportModal.classList.remove('hidden');
+  }
+}
+
+window.switchProviderMode = async function(mode) {
+  if (elements.providerSelect) {
+    elements.providerSelect.value = mode;
+    elements.providerSelect.dispatchEvent(new Event('change'));
+  }
+};
+
+window.openManualSandboxModal = function() {
+  if (elements.modalManualSandbox) {
+    elements.modalManualSandbox.classList.remove('hidden');
+  }
+};
+
+window.closeManualSandboxModal = function() {
+  if (elements.modalManualSandbox) {
+    elements.modalManualSandbox.classList.add('hidden');
+  }
+};
+
 // Packaging 3D Optimizer Tab
 // -----------------------------------------------------------------------------
 
@@ -1188,3 +1700,94 @@ async function fetchAndRenderMlPrediction() {
     elements.mlConfidenceInterval.textContent = err.message;
   }
 }
+
+
+window.viewFieldProvenance = async function(quoteId, event) {
+  if (event) event.stopPropagation();
+  let quote = (state.activeQuotes || []).find(q => q.quote_id === quoteId);
+  let provList = [];
+
+  if (quote && quote.field_provenance && Object.keys(quote.field_provenance).length > 0) {
+    provList = Object.values(quote.field_provenance);
+  } else {
+    try {
+      const res = await fetch(`/api/quotes/${encodeURIComponent(quoteId)}/provenance`);
+      if (res.ok) {
+        const pdata = await res.json();
+        provList = pdata.field_provenance || [];
+      }
+    } catch (e) {
+      console.warn('Failed to fetch quote provenance:', e);
+    }
+  }
+
+  if (elements.modalProvTitle) {
+    elements.modalProvTitle.textContent = `Data Provenance Audit: ${quote ? quote.courier_name : quoteId}`;
+  }
+  if (elements.modalProvSubtitle) {
+    elements.modalProvSubtitle.innerHTML = `Quote ID: <code>${quoteId}</code> &bull; Source: <strong>${quote ? (quote.source_id || quote.source_type) : 'Aggregator'}</strong> &bull; Timestamp: <strong>${quote ? quote.retrieval_timestamp : 'N/A'}</strong>`;
+  }
+
+  if (elements.modalProvTableBody) {
+    if (provList.length === 0) {
+      elements.modalProvTableBody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:16px;">No field-level provenance records available.</td></tr>`;
+    } else {
+      elements.modalProvTableBody.innerHTML = provList.map(p => {
+        const st = p.validation_status || 'VALIDATED';
+        let badgeColor = '#15803d';
+        let badgeBg = '#f0fdf4';
+        if (st.includes('UNVERIFIED')) {
+          badgeColor = '#92400e';
+          badgeBg = '#fef3c7';
+        } else if (st.includes('MOCK')) {
+          badgeColor = '#1d4ed8';
+          badgeBg = '#eff6ff';
+        }
+        return `
+          <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 8px 10px; font-weight: 600; color: var(--primary);">${p.field_name}</td>
+            <td style="padding: 8px 10px; font-weight: 700;">${p.extracted_value != null ? p.extracted_value : '—'}</td>
+            <td style="padding: 8px 10px;"><span style="font-size: 11px; padding: 2px 6px; border-radius: 3px; background: #e2e8f0;">${p.source_type}</span></td>
+            <td style="padding: 8px 10px; font-family: monospace; font-size: 11px;">${p.source_identifier || '—'}</td>
+            <td style="padding: 8px 10px; font-family: monospace; font-size: 11px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${p.source_url_or_endpoint || ''}">${p.source_url_or_endpoint || '—'}</td>
+            <td style="padding: 8px 10px; font-size: 11px;">${p.retrieval_timestamp || '—'}</td>
+            <td style="padding: 8px 10px; font-size: 11px;">${p.retrieval_method || '—'}</td>
+            <td style="padding: 8px 10px;"><span style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; color: ${badgeColor}; background: ${badgeBg};">${st}</span></td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  if (elements.modalProvRawBox && elements.modalProvRawPre) {
+    const rawSnap = quote ? (quote.raw_response_snapshot || (provList[0] && provList[0].raw_snapshot_json)) : null;
+    if (rawSnap) {
+      elements.modalProvRawBox.classList.remove('hidden');
+      elements.modalProvRawPre.textContent = typeof rawSnap === 'string' ? rawSnap : JSON.stringify(rawSnap, null, 2);
+    } else {
+      elements.modalProvRawBox.classList.add('hidden');
+    }
+  }
+
+  if (elements.modalFieldProvenance) {
+    elements.modalFieldProvenance.classList.remove('hidden');
+  }
+};
+
+window.closeFieldProvenanceModal = function() {
+  if (elements.modalFieldProvenance) {
+    elements.modalFieldProvenance.classList.add('hidden');
+  }
+};
+
+window.openDashboardExportModal = function() {
+  if (elements.modalDashboardExport) {
+    elements.modalDashboardExport.classList.remove('hidden');
+  }
+};
+
+window.closeDashboardExportModal = function() {
+  if (elements.modalDashboardExport) {
+    elements.modalDashboardExport.classList.add('hidden');
+  }
+};

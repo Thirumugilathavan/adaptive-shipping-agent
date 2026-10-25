@@ -80,42 +80,45 @@ def test_scenario_d_ambiguous_booking(evaluator_suite):
     assert "RECONCILED" in res.evidence["reconciliation_status"]
 
 
-def test_scenario_e_official_tc1(evaluator_suite):
-    """Demo E / TC1: Same parcel on 3 couriers, transparent fee breakdowns, ranked by total cost."""
+def test_scenario_e_speed_express(evaluator_suite):
+    """Demo E: Speed-optimized routing prioritizing lowest transit time under FASTEST_DELIVERY."""
     res = evaluator_suite.run_scenario("DEMO_E")
     assert res.status == ScenarioStatus.PASSED
     assert res.scenario_id == "DEMO_E"
     assert res.evidence["quotes_count"] == 3
-    assert len(res.evidence["breakdowns"]) == 3
+    assert res.evidence["fastest_courier"] is not None
+    assert res.evidence["fastest_days"] <= 2
+    assert res.evidence["speed_cost_premium_inr"] >= 0
 
 
-def test_scenario_f_official_tc2(evaluator_suite):
-    """Demo F / TC2: Large light box; distinct volumetric divisors applied (5000, 4500, 4000)."""
+def test_scenario_f_high_value_cod(evaluator_suite):
+    """Demo F: High-value COD order testing collection surcharges and price differential."""
     res = evaluator_suite.run_scenario("DEMO_F")
     assert res.status == ScenarioStatus.PASSED
     assert res.scenario_id == "DEMO_F"
-    assert res.evidence["air_divisor"] == 5000.0
-    assert res.evidence["surface_divisor"] == 4500.0
-    assert res.evidence["cargo_divisor"] == 4000.0
+    assert len(res.evidence["cod_fees"]) >= 3
+    assert all(fee > 0 for fee in res.evidence["cod_fees"].values())
+    assert res.evidence["collection_amount"] == 4500.0
 
 
-def test_scenario_g_official_tc3(evaluator_suite):
-    """Demo G / TC3: Remote destination PIN 791111; Air Express excluded with reason; cost never zero."""
+def test_scenario_g_heavy_cargo_slab(evaluator_suite):
+    """Demo G: Bulk parcel (18kg) testing heavy cargo multi-tier slab pricing."""
     res = evaluator_suite.run_scenario("DEMO_G")
     assert res.status == ScenarioStatus.PASSED
     assert res.scenario_id == "DEMO_G"
-    assert "remote region" in res.evidence["rejection_reason"]
+    assert res.evidence["winner_courier"] == "Demo Heavy Cargo (Simulated)"
+    assert res.evidence["winner_total_cost"] < 600.0
 
 
-def test_scenario_h_official_tc4(evaluator_suite):
-    """Demo H / TC4: Approved shipment dispatched, label generated, AWB verified, 5/5 checkpoints pass."""
+def test_scenario_h_fragile_packaging_fit(evaluator_suite):
+    """Demo H: Packaging optimization selecting protective corrugated box over flyer for fragile item."""
     res = evaluator_suite.run_scenario("DEMO_H")
     assert res.status == ScenarioStatus.PASSED
     assert res.scenario_id == "DEMO_H"
-    assert res.evidence["tracking_number"].startswith("DEMO-TRK-")
-    checks = res.evidence["verification_checks"]
-    assert len(checks) == 5
-    assert all(c["passed"] for c in checks)
+    assert res.evidence["recommended_box"] is not None
+    assert res.evidence["volume_reduction_pct"] > 0
+    assert res.evidence["estimated_freight_savings_inr"] > 0
+    assert len(res.evidence["rejected_packages"]) > 0
 
 
 def test_scenario_i_mandatory_and_cod(evaluator_suite):

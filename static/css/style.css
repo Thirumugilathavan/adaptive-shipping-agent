@@ -1069,6 +1069,204 @@ button {
 }
 
 /* ==========================================================================
+   Official Competition Test Cases (TC1 – TC4) & Evaluator Outcome Boxes
+   ========================================================================== */
+
+.badge-tc-flag {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 700;
+  border: 1px solid #bfdbfe;
+  letter-spacing: 0.5px;
+}
+
+.badge-demo-flag {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: #fefce8;
+  color: #a16207;
+  font-weight: 700;
+  border: 1px solid #fef08a;
+  letter-spacing: 0.5px;
+}
+
+.tc-metrics-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 768px) {
+  .tc-metrics-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.tc-metric-card {
+  background: #ffffff;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--shadow-sm);
+}
+
+.tc-metric-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.tc-metric-val {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.official-tc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .official-tc-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.official-tc-card {
+  background-color: #ffffff;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.official-tc-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.tc-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.tc-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--primary-dark);
+  margin: 0 0 4px 0;
+}
+
+.tc-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.tc-route-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.tc-spec-badge {
+  font-size: 11px;
+  font-weight: 600;
+  background-color: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* Outcome Callout Containers */
+.outcome-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.outcome-box {
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.expected-outcome-box {
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+}
+
+.expected-outcome-box strong {
+  color: #1d4ed8;
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.actual-outcome-box {
+  background-color: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #14532d;
+}
+
+.actual-outcome-box strong {
+  color: #15803d;
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.actual-not-run {
+  background-color: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  color: #64748b;
+  font-style: italic;
+}
+
+.actual-not-run strong {
+  color: #64748b;
+  font-style: normal;
+}
+
+.actual-failed {
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.actual-failed strong {
+  color: #b91c1c;
+}
+
+/* ==========================================================================
    Data Tables (Audit, Test Runs)
    ========================================================================== */
 
@@ -1540,3 +1738,103 @@ button {
   border-radius: var(--radius-sm);
 }
 
+
+/* ==========================================================================
+   Provider Controls & Sandbox Mode Banners
+   ========================================================================== */
+
+.provider-control-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #ffffff;
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+}
+
+.provider-mode-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.provider-mode-dropdown {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary-dark);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  background-color: #f8fafc;
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.provider-mode-dropdown:focus {
+  border-color: var(--primary);
+  background-color: #ffffff;
+}
+
+.provider-mode-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  margin-bottom: 20px;
+  font-size: 13px;
+  line-height: 1.4;
+  border-left: 4px solid var(--primary);
+  transition: all var(--transition-fast);
+}
+
+.provider-mode-banner .banner-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.provider-mode-banner .banner-icon {
+  font-size: 16px;
+}
+
+.provider-mode-banner .banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.banner-demo {
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-left: 4px solid var(--primary);
+  color: #1e40af;
+}
+
+.banner-sandbox,
+.banner-sandbox-connected {
+  background-color: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-left: 4px solid #16a34a;
+  color: #166534;
+}
+
+.banner-sandbox-warning {
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 4px solid #d97706;
+  color: #92400e;
+}
+
+.banner-manual {
+  background-color: #faf5ff;
+  border: 1px solid #e9d5ff;
+  border-left: 4px solid #9333ea;
+  color: #6b21a8;
+}
