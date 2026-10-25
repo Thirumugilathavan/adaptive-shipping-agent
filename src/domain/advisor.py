@@ -549,3 +549,289 @@ def _generate_narrative_hints(
             hint = f"Equivalent price and estimated delivery time."
 
     return adv, dis, hint
+
+
+# ---------------------------------------------------------------------------
+# Interactive Alternative Recommendation Engine (Requirement 1)
+# ---------------------------------------------------------------------------
+
+class AlternativeCandidate(BaseModel):
+    quote_id: str
+    courier_code: str
+    courier_name: str
+    service_type: str
+    total_cost: float
+    estimated_delivery_days: Optional[int] = None
+    is_serviceable: bool = True
+    selection_rationale: str = ""
+    cost_diff_vs_baseline: float = 0.0
+    days_diff_vs_baseline: Optional[int] = None
+    tradeoff_explanation: str = ""
+    is_recommended: bool = False
+    source_type: str = "DEMO_ADAPTER"
+    is_demo_data: bool = True
+
+
+class AlternativeRecommendationResult(BaseModel):
+    preference_applied: str
+    selected_recommendation: Optional[AlternativeCandidate] = None
+    baseline_recommendation: Optional[AlternativeCandidate] = None
+    is_switched: bool = False
+    decision_explanation: str
+    tradeoff_summary: str = ""
+    eligible_alternatives: list[AlternativeCandidate] = Field(default_factory=list)
+    unserviceable_candidates: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def find_alternative_recommendations(
+    quotes: list[CourierQuote],
+    current_winner_id: Optional[str] = None,
+    preference_mode: str = "balanced",
+    preferred_courier: Optional[str] = None,
+    max_budget: Optional[float] = None,
+    max_delivery_days: Optional[int] = None,
+    exclude_current_winner: bool = True,
+) -> AlternativeRecommendationResult:
+    """
+    Generate an alternative courier recommendation based on user-selected preference.
+    
+    Supported preference modes:
+    - 'lowest_cost': prioritize lowest landed cost
+    - 'fastest': prioritize fastest turnaround SLA
+    - 'balanced': balance 60% cost and 40% speed
+    - 'preferred_courier': prioritize a specific carrier requested by user
+    - 'next_best': offer next viable candidate when user rejects first pick
+    """
+    if not quotes:
+        return AlternativeRecommendationResult(
+            preference_applied=preference_mode,
+            decision_explanation="No quotes available to evaluate.",
+            tradeoff_summary="Cannot generate recommendations without candidate courier quotes.",
+        )
+
+    # 1. Separate eligible and unserviceable quotes
+    eligible: list[CourierQuote] = [
+        q for q in quotes if q.is_serviceable and q.is_eligible and q.cost_breakdown is not None
+    ]
+    unserviceable: list[CourierQuote] = [
+        q for q in quotes if not q.is_serviceable or not q.is_eligible or q.cost_breakdown is None
+    ]
+
+    unserviceable_list = [
+        {
+            "quote_id": q.quote_id,
+            "courier_code": q.courier_code,
+            "courier_name": q.courier_name,
+            "service_type": q.service_type,
+            "reason": q.unserviceable_reason or "; ".join(q.eligibility_reasons or []) or "Unserviceable for route or parcel dimensions.",
+        }
+        for q in unserviceable
+    ]
+
+    if not eligible:
+        return AlternativeRecommendationResult(
+            preference_applied=preference_mode,
+            decision_explanation="No eligible couriers can service this destination PIN or satisfy parcel dimensions.",
+            tradeoff_summary="All candidate couriers are unserviceable or excluded for this route.",
+            unserviceable_candidates=unserviceable_list,
+        )
+
+    # 2. Identify baseline quote (current recommended pick or first eligible)
+    baseline_q = next((q for q in eligible if q.quote_id == current_winner_id), None) or eligible[0]
+    base_cost = baseline_q.cost_breakdown.total_cost if baseline_q.cost_breakdown else 0.0
+    base_days = baseline_q.estimated_delivery_days or 3
+
+    baseline_candidate = AlternativeCandidate(
+        quote_id=baseline_q.quote_id,
+        courier_code=baseline_q.courier_code,
+        courier_name=baseline_q.courier_name,
+        service_type=baseline_q.service_type,
+        total_cost=base_cost,
+        estimated_delivery_days=baseline_q.estimated_delivery_days,
+        is_serviceable=True,
+        selection_rationale="Current baseline winner.",
+        cost_diff_vs_baseline=0.0,
+        days_diff_vs_baseline=0,
+        tradeoff_explanation="Original recommendation.",
+        is_recommended=True,
+        source_type=getattr(baseline_q, "source_type", "DEMO_ADAPTER"),
+        is_demo_data=getattr(baseline_q, "is_demo_data", True),
+    )
+
+    # 3. Preference evaluation & re-ranking
+    mode = (preference_mode or "balanced").strip().lower()
+    selected_quote: Optional[CourierQuote] = None
+    decision_reason: str = ""
+    pref_applied_label = mode
+
+    # Preference: Preferred Carrier
+    if preferred_courier:
+        pref_norm = preferred_courier.strip().lower()
+        pref_match = next(
+            (q for q in eligible if pref_norm in q.courier_code.lower() or pref_norm in q.courier_name.lower()),
+            None
+        )
+        if pref_match:
+            selected_quote = pref_match
+            pref_applied_label = f"Preferred Carrier: {pref_match.courier_name}"
+            decision_reason = f"Selected your preferred carrier '{pref_match.courier_name}'. Fully serviceable for this route at INR {pref_match.cost_breakdown.total_cost:.2f}."
+        else:
+            # Check if user requested an unserviceable courier
+            unsvc_match = next(
+                (q for q in unserviceable if pref_norm in q.courier_code.lower() or pref_norm in q.courier_name.lower()),
+                None
+            )
+            if unsvc_match:
+                reason = unsvc_match.unserviceable_reason or "; ".join(unsvc_match.eligibility_reasons or []) or "Unserviceable for this route."
+                decision_reason = (
+                    f"Requested courier '{unsvc_match.courier_name}' cannot be recommended because it is unserviceable or excluded ({reason}). "
+                    f"Showing best available alternative."
+                )
+            else:
+                decision_reason = f"Requested carrier '{preferred_courier}' is not in candidate list. Showing best alternative."
+
+    # If no preferred courier matched or not specified, evaluate preference mode
+    pref_notice = decision_reason
+    if selected_quote is None:
+        if mode == "fastest":
+            pref_applied_label = "Fastest Delivery"
+            # Sort by delivery days ascending, then cost ascending
+            sorted_by_speed = sorted(
+                eligible,
+                key=lambda q: (q.estimated_delivery_days or 99, q.cost_breakdown.total_cost if q.cost_breakdown else 9999.0)
+            )
+            if exclude_current_winner and len(sorted_by_speed) > 1 and sorted_by_speed[0].quote_id == current_winner_id:
+                selected_quote = sorted_by_speed[1]
+            else:
+                selected_quote = sorted_by_speed[0]
+
+            sla = selected_quote.estimated_delivery_days or 1
+            cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
+            if selected_quote.quote_id == baseline_q.quote_id:
+                mode_reason = f"Current recommendation is already the fastest available eligible option ({sla} Days SLA at INR {cost:.2f})."
+            else:
+                mode_reason = f"Prioritizes delivery turnaround: Delivers in {sla} Days (INR {cost:.2f})."
+
+        elif mode == "lowest_cost":
+            pref_applied_label = "Lowest Shipping Cost"
+            sorted_by_cost = sorted(
+                eligible,
+                key=lambda q: (q.cost_breakdown.total_cost if q.cost_breakdown else 9999.0, q.estimated_delivery_days or 99)
+            )
+            if exclude_current_winner and len(sorted_by_cost) > 1 and sorted_by_cost[0].quote_id == current_winner_id:
+                selected_quote = sorted_by_cost[1]
+            else:
+                selected_quote = sorted_by_cost[0]
+
+            cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
+            sla = selected_quote.estimated_delivery_days or 3
+            if selected_quote.quote_id == baseline_q.quote_id:
+                mode_reason = f"Current recommendation is already the lowest cost option available (INR {cost:.2f}, {sla} Days SLA)."
+            else:
+                mode_reason = f"Prioritizes shipping savings: Lowest landed freight cost at INR {cost:.2f} (SLA: {sla} Days)."
+
+        elif mode in ("next_best", "reject"):
+            pref_applied_label = "Alternative Choice"
+            remaining = [q for q in eligible if q.quote_id != current_winner_id]
+            if remaining:
+                # Pick the next best eligible candidate
+                selected_quote = remaining[0]
+                cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
+                sla = selected_quote.estimated_delivery_days or 3
+                mode_reason = f"Alternative recommendation: {selected_quote.courier_name} at INR {cost:.2f} ({sla} Days SLA)."
+            else:
+                selected_quote = baseline_q
+                mode_reason = f"No other eligible couriers available for this route. {baseline_q.courier_name} remains the only viable carrier."
+
+        else:
+            # Default: Balanced mode (composite 60% cost, 40% speed)
+            pref_applied_label = "Balanced Cost & Speed"
+            min_c = min((q.cost_breakdown.total_cost for q in eligible if q.cost_breakdown), default=1.0)
+            max_c = max((q.cost_breakdown.total_cost for q in eligible if q.cost_breakdown), default=min_c + 1.0)
+            min_d = min((q.estimated_delivery_days or 3 for q in eligible), default=1)
+            max_d = max((q.estimated_delivery_days or 3 for q in eligible), default=min_d + 1)
+            c_span = max(max_c - min_c, 1.0)
+            d_span = max(max_d - min_d, 1)
+
+            def score_q(q: CourierQuote) -> float:
+                cost_norm = ((q.cost_breakdown.total_cost if q.cost_breakdown else max_c) - min_c) / c_span
+                speed_norm = ((q.estimated_delivery_days or max_d) - min_d) / d_span
+                return 0.6 * cost_norm + 0.4 * speed_norm
+
+            sorted_balanced = sorted(eligible, key=score_q)
+            if exclude_current_winner and len(sorted_balanced) > 1 and sorted_balanced[0].quote_id == current_winner_id:
+                selected_quote = sorted_balanced[1]
+            else:
+                selected_quote = sorted_balanced[0]
+
+            cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
+            sla = selected_quote.estimated_delivery_days or 3
+            mode_reason = f"Balanced trade-off between transit speed ({sla} Days) and landed freight cost (INR {cost:.2f})."
+
+        if pref_notice:
+            decision_reason = f"{pref_notice} {mode_reason}"
+        else:
+            decision_reason = mode_reason
+
+    # Fallback safety
+    if selected_quote is None:
+        selected_quote = baseline_q
+
+    # 4. Construct alternative candidates with trade-off calculations
+    all_alt_candidates: list[AlternativeCandidate] = []
+    tradeoff_summary = ""
+
+    for q in eligible:
+        cost_q = q.cost_breakdown.total_cost if q.cost_breakdown else 0.0
+        days_q = q.estimated_delivery_days
+        diff_c = round(cost_q - base_cost, 2)
+        diff_d = (days_q - base_days) if days_q is not None and base_days is not None else None
+
+        # Build trade-off explanation
+        if diff_c < 0 and diff_d is not None and diff_d > 0:
+            trade_text = f"Saves INR {abs(diff_c):.2f} but delivers {diff_d} day(s) later."
+        elif diff_c < 0 and diff_d is not None and diff_d <= 0:
+            trade_text = f"Saves INR {abs(diff_c):.2f} with faster or equal delivery time."
+        elif diff_c > 0 and diff_d is not None and diff_d < 0:
+            trade_text = f"Delivers {abs(diff_d)} day(s) faster for an additional INR {diff_c:.2f}."
+        elif diff_c > 0 and diff_d is not None and diff_d >= 0:
+            trade_text = f"Costs INR {diff_c:.2f} more and takes equal or longer transit."
+        elif diff_c == 0:
+            trade_text = "Equivalent freight cost."
+        else:
+            trade_text = f"Cost variance: INR {diff_c:+.2f}."
+
+        is_sel = (q.quote_id == selected_quote.quote_id)
+        cand = AlternativeCandidate(
+            quote_id=q.quote_id,
+            courier_code=q.courier_code,
+            courier_name=q.courier_name,
+            service_type=q.service_type,
+            total_cost=cost_q,
+            estimated_delivery_days=days_q,
+            is_serviceable=True,
+            selection_rationale="Recommended alternative" if is_sel else "Eligible alternative",
+            cost_diff_vs_baseline=diff_c,
+            days_diff_vs_baseline=diff_d,
+            tradeoff_explanation=trade_text,
+            is_recommended=is_sel,
+            source_type=getattr(q, "source_type", "DEMO_ADAPTER"),
+            is_demo_data=getattr(q, "is_demo_data", True),
+        )
+        all_alt_candidates.append(cand)
+        if is_sel:
+            tradeoff_summary = trade_text
+
+    selected_cand = next((c for c in all_alt_candidates if c.quote_id == selected_quote.quote_id), None)
+    is_switched = (selected_quote.quote_id != baseline_q.quote_id)
+
+    return AlternativeRecommendationResult(
+        preference_applied=pref_applied_label,
+        selected_recommendation=selected_cand,
+        baseline_recommendation=baseline_candidate,
+        is_switched=is_switched,
+        decision_explanation=decision_reason,
+        tradeoff_summary=tradeoff_summary,
+        eligible_alternatives=all_alt_candidates,
+        unserviceable_candidates=unserviceable_list,
+    )

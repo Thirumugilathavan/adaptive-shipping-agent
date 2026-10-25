@@ -31,7 +31,6 @@
         <select id="providerModeSelect" class="provider-mode-dropdown">
           <option value="demo" selected>Local Demo Mode</option>
           <option value="local_sandbox">Local Courier Sandbox (Simulation)</option>
-          <option value="manual_sandbox">Manual Sandbox Entry</option>
         </select>
       </div>
       <div class="status-indicator">
@@ -118,13 +117,15 @@
                 <div class="grid-2">
                   <div class="form-group">
                     <label for="senderPin">Pickup PIN Code *</label>
-                    <input type="text" id="senderPin" name="sender_pin" value="110001" maxlength="6" required>
+                    <input type="text" id="senderPin" name="sender_pin" value="110001" maxlength="6" required autocomplete="off">
                     <span class="helper-text" id="senderPinDesc">New Delhi (Delhi)</span>
+                    <div class="pin-feedback-msg" id="senderPinFeedback"></div>
                   </div>
                   <div class="form-group">
                     <label for="recipientPin">Delivery PIN Code *</label>
-                    <input type="text" id="recipientPin" name="recipient_pin" value="400001" maxlength="6" required>
+                    <input type="text" id="recipientPin" name="recipient_pin" value="400001" maxlength="6" required autocomplete="off">
                     <span class="helper-text" id="recipientPinDesc">Mumbai (Maharashtra)</span>
+                    <div class="pin-feedback-msg" id="recipientPinFeedback"></div>
                   </div>
                 </div>
                 <div class="grid-2">
@@ -241,8 +242,6 @@
                 <p class="panel-desc">Review ranked courier quotes, SLA turnaround times, and fee breakdowns.</p>
               </div>
               <div style="display:flex; gap:8px;">
-                <button id="btnOpenManualQuoteModal" class="btn-primary btn-sm hidden">Add Manual Quote</button>
-                <button id="btnOpenDashboardExportModal" class="btn-outline btn-sm hidden">Paste Dashboard Export</button>
                 <button id="btnBackToStep1" class="btn-outline btn-sm">Edit Dimensions</button>
               </div>
             </div>
@@ -261,27 +260,105 @@
               <p id="unserviceableAlertMsg" style="color: var(--text-main); font-size: 13px;"></p>
             </div>
 
-            <!-- Advisor Recommendation Card -->
-            <div id="advisorCard" class="card advisor-card">
-              <div class="advisor-header">
-                <span class="badge-recommendation">RECOMMENDED ADVISOR PICK</span>
-                <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px;">
-                  <h3 id="advCourierName">Demo Air Express</h3>
-                  <div style="font-size: 14px; font-weight: 700; color: var(--primary);">
-                    <span id="advWinningCost">INR --.--</span> &bull; <span id="advWinningSla">-- Days SLA</span>
-                  </div>
+            <!-- =============================================================== -->
+            <!-- A. RECOMMENDED COURIER (Top Priority Presentation)               -->
+            <!-- =============================================================== -->
+            <div id="advisorCard" class="card recommended-courier-card">
+              <div class="rec-card-header">
+                <span class="badge-recommendation">RECOMMENDED COURIER</span>
+                <span class="badge-demo-flag" id="recSourceFlag">SIMULATED DATA</span>
+              </div>
+              <div class="rec-main-row">
+                <div class="rec-courier-identity">
+                  <h3 id="advCourierName" class="rec-courier-name">Blue Dart Express (Simulated)</h3>
+                  <span id="advServiceTypeBadge" class="rec-service-badge">Air Express Priority</span>
+                </div>
+                <div class="rec-pricing-block">
+                  <div class="rec-cost-val" id="advWinningCost">INR --.--</div>
+                  <div class="rec-sla-val" id="advWinningSla">-- Days SLA</div>
                 </div>
               </div>
-              <p id="advExplanation" class="advisor-explanation"></p>
+              <div class="rec-meta-grid">
+                <div class="rec-meta-item">
+                  <span class="rec-meta-label">Billable Weight</span>
+                  <strong id="recBillableWeight">-- kg</strong>
+                </div>
+                <div class="rec-meta-item">
+                  <span class="rec-meta-label">Volumetric Wt</span>
+                  <strong id="recVolumetricWeight">-- kg</strong>
+                </div>
+                <div class="rec-meta-item">
+                  <span class="rec-meta-label">Destination Route</span>
+                  <strong id="recRouteStatus" class="text-success">Serviceable</strong>
+                </div>
+                <div class="rec-meta-item">
+                  <span class="rec-meta-label">Delivery SLA</span>
+                  <strong id="recTurnaroundTime">-- Business Days</strong>
+                </div>
+              </div>
+              <div class="rec-disclaimer-strip">
+                <small id="recDisclaimerText">Simulated carrier option for operational comparison. Official quote determines carrier booking rate.</small>
+              </div>
+            </div>
+
+            <!-- =============================================================== -->
+            <!-- B. WHY THIS COURIER IS RECOMMENDED & ALTERNATIVE EXPLORER       -->
+            <!-- =============================================================== -->
+            <div id="whyRecommendedCard" class="card why-recommended-card">
+              <div class="why-rec-header">
+                <div>
+                  <h3 class="why-rec-title">Why This Courier Is Recommended</h3>
+                  <p class="panel-desc" style="margin-top: 2px;">Decision rationale based on freight cost, delivery speed, packaging fit, and route serviceability.</p>
+                </div>
+                <button type="button" class="btn-primary btn-sm" id="btnToggleAltRecommendations">
+                  Explore Other Recommendations
+                </button>
+              </div>
+
+              <!-- Plain Language Explanation -->
+              <p id="advExplanation" class="advisor-explanation" style="font-size: 14px; line-height: 1.5; color: var(--text-main); margin: 10px 0;"></p>
               
-              <!-- Winning Reasons -->
-              <div id="advWinnerReasonsBox" class="winner-reasons-box" style="margin-top: 10px; padding: 10px 14px; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-sm);">
-                <strong style="color: #166534; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Why This Courier Won:</strong>
+              <!-- Winning Reasons List -->
+              <div id="advWinnerReasonsBox" class="winner-reasons-box" style="margin-top: 8px; padding: 10px 14px; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-sm);">
+                <strong style="color: #166534; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Key Ranking Factors:</strong>
                 <ul id="advWinnerReasonsList" style="margin-left: 18px; margin-top: 4px; font-size: 13px; color: #15803d;"></ul>
               </div>
 
+              <!-- Interactive Alternative Recommendation Explorer (Requirement 1) -->
+              <div id="altRecommendationsPanel" class="alt-recommendations-panel hidden" style="margin-top: 14px; padding: 14px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: var(--radius-sm);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <strong style="font-size: 13px; color: var(--primary-dark);">Explore Alternatives by Preference:</strong>
+                  <button type="button" class="btn-ghost btn-sm" id="btnCloseAltPanel" style="padding: 2px 6px;">Hide</button>
+                </div>
+                <div class="alt-pref-btn-group" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                  <button type="button" class="btn-outline btn-sm btn-pref-chip active" data-pref="lowest_cost">Lowest Shipping Cost</button>
+                  <button type="button" class="btn-outline btn-sm btn-pref-chip" data-pref="fastest">Fastest Delivery</button>
+                  <button type="button" class="btn-outline btn-sm btn-pref-chip" data-pref="balanced">Balanced Cost &amp; Speed</button>
+                  <button type="button" class="btn-outline btn-sm btn-pref-chip" data-pref="next_best">Next Best Option</button>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+                  <label for="selPreferredCourier" style="font-size: 12px; font-weight: 600; color: var(--text-muted);">Or Choose a Specific Carrier:</label>
+                  <select id="selPreferredCourier" class="ml-select" style="font-size: 12px; padding: 4px 8px;">
+                    <option value="">-- Any Available Carrier --</option>
+                    <option value="Blue Dart">Blue Dart</option>
+                    <option value="Delhivery">Delhivery</option>
+                    <option value="DTDC">DTDC</option>
+                    <option value="India Post">India Post</option>
+                    <option value="XpressBees">XpressBees</option>
+                    <option value="Ecom Express">Ecom Express</option>
+                  </select>
+                  <button type="button" class="btn-primary btn-sm" id="btnApplyAltPreference">Apply Preference</button>
+                </div>
+
+                <!-- Live Alternative Candidate Display -->
+                <div id="altRecResultContainer" class="alt-result-container hidden">
+                  <div id="altResultNotice" style="font-size: 13px; font-weight: 600; color: var(--primary-dark); margin-bottom: 8px;"></div>
+                  <div id="altCandidatesList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                </div>
+              </div>
+
               <!-- Tradeoff Analysis -->
-              <div id="advTradeoffBox" class="tradeoff-box hidden">
+              <div id="advTradeoffBox" class="tradeoff-box hidden" style="margin-top: 10px;">
                 <strong>Cost vs. Delivery Trade-off Analysis:</strong>
                 <div id="advTradeoffText" style="margin-top: 4px; font-size: 13px;"></div>
                 <ul id="advTradeoffList" style="margin-top: 4px;"></ul>
@@ -733,101 +810,6 @@
         <button id="modalCloseBtn" class="modal-close" aria-label="Close modal">&times;</button>
       </div>
       <div class="modal-body" id="modalBody"></div>
-    </div>
-  </div>
-
-  <!-- Modal for Manual Sandbox Quote Entry -->
-  <div id="modalManualSandbox" class="modal-overlay hidden">
-    <div class="modal-card" style="max-width: 520px;">
-      <div class="modal-header">
-        <h3>Add Manual Sandbox Quote</h3>
-        <button id="modalManualCloseBtn" class="modal-close" aria-label="Close modal">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p class="panel-desc" style="margin-bottom: 14px;">Record rate details copied from your courier sandbox dashboard (e.g. Shiprocket, Delhivery, or BlueDart) to evaluate under human approval.</p>
-        <form id="manualQuoteForm">
-          <div class="form-group">
-            <label for="mqCourierName">Courier Name *</label>
-            <input type="text" id="mqCourierName" placeholder="e.g. Delhivery Surface Sandbox" required>
-          </div>
-          <div class="grid-2">
-            <div class="form-group">
-              <label for="mqServiceType">Service Type *</label>
-              <input type="text" id="mqServiceType" placeholder="e.g. Express Air" value="Standard Ground" required>
-            </div>
-            <div class="form-group">
-              <label for="mqEstDays">Estimated Days *</label>
-              <input type="number" id="mqEstDays" value="3" min="1" required>
-            </div>
-          </div>
-          <div class="grid-3">
-            <div class="form-group">
-              <label for="mqBase">Base Freight (₹) *</label>
-              <input type="number" id="mqBase" step="0.5" placeholder="80.0" required>
-            </div>
-            <div class="form-group">
-              <label for="mqFuel">Fuel Surcharge (₹)</label>
-              <input type="number" id="mqFuel" step="0.5" value="0.0">
-            </div>
-            <div class="form-group">
-              <label for="mqTax">GST / Tax (₹)</label>
-              <input type="number" id="mqTax" step="0.5" value="0.0">
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="mqTotal">Total Quoted Cost (₹) *</label>
-            <input type="number" id="mqTotal" step="0.5" placeholder="Total landed cost" required>
-          </div>
-          <div class="form-group">
-            <label for="mqDashboardRef">Dashboard Reference / Tracking URL</label>
-            <input type="text" id="mqDashboardRef" placeholder="e.g. SBX-ORD-98234 or dashboard link">
-          </div>
-          <div class="grid-2">
-            <div class="form-group">
-              <label for="mqSourceId">Source Identifier</label>
-              <input type="text" id="mqSourceId" placeholder="e.g. shiprocket-sandbox-dashboard" value="operator-dashboard-manual">
-            </div>
-            <div class="form-group">
-              <label for="mqSourceUrl">Dashboard Source URL</label>
-              <input type="text" id="mqSourceUrl" placeholder="https://app.shiprocket.in/dashboard/rates">
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="mqNotes">Notes / Evidence Justification</label>
-            <textarea id="mqNotes" rows="2" placeholder="Recorded from sandbox dashboard simulator"></textarea>
-          </div>
-          <button type="submit" class="btn-primary full-width" style="margin-top: 10px;">Save Manual Quote to Session</button>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  
-  <!-- Modal for Dashboard Export Paste -->
-  <div id="modalDashboardExport" class="modal-overlay hidden">
-    <div class="modal-card" style="max-width: 600px;">
-      <div class="modal-header">
-        <h3>Paste Courier Aggregator Dashboard Export</h3>
-        <button id="modalExportCloseBtn" class="modal-close" aria-label="Close modal">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p class="panel-desc" style="margin-bottom: 12px;">Paste JSON rates exported or copied from your courier aggregator sandbox dashboard (e.g., Shiprocket, Delhivery, or BlueDart).</p>
-        <form id="dashboardExportForm">
-          <div class="form-group">
-            <label for="expSourceId">Aggregator / Dashboard Identifier *</label>
-            <input type="text" id="expSourceId" value="courier-aggregator-sandbox-export" placeholder="e.g. shiprocket-sandbox-dashboard" required>
-          </div>
-          <div class="form-group">
-            <label for="expSourceUrl">Dashboard Source URL *</label>
-            <input type="url" id="expSourceUrl" value="https://app.shiprocket.in/dashboard/rates" placeholder="https://..." required>
-          </div>
-          <div class="form-group">
-            <label for="expJsonPayload">Dashboard Export JSON *</label>
-            <textarea id="expJsonPayload" rows="8" placeholder='[{"courier_name": "Delhivery Express", "base_freight": 85.0, "fuel_surcharge": 8.5, "tax_amount": 16.83, "total_cost": 110.33, "estimated_delivery_days": 2}]' required style="font-family: monospace; font-size: 12px;"></textarea>
-          </div>
-          <button type="submit" class="btn-primary full-width" style="margin-top: 8px;">Parse & Import Dashboard Quotes</button>
-        </form>
-      </div>
     </div>
   </div>
 

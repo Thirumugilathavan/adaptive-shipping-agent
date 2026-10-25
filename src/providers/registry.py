@@ -3,7 +3,6 @@ Courier Provider Registry and Factory.
 Supports 100% offline modes:
 1. Local Demo Mode (default, simulated multi-courier network)
 2. Local Courier Sandbox (Simulation) (self-contained offline sandbox simulation)
-3. Manual Sandbox Entry mode (operator-entered rates from external dashboards)
 
 Zero external API dependencies, zero credentials, zero network calls.
 """
@@ -22,7 +21,6 @@ PROVIDER_REGISTRY: dict[str, Type[CourierProvider]] = {
     "demo": DemoShippingAdapter,
     "sandbox": LocalSandboxShippingAdapter,
     "local_sandbox": LocalSandboxShippingAdapter,
-    "manual_sandbox": DemoShippingAdapter,  # Uses demo adapter infrastructure with manual quote tags
 }
 
 
@@ -38,8 +36,8 @@ def set_active_provider_mode(mode: str) -> str:
     cleaned = mode.strip().lower()
     if cleaned in ("sandbox", "local_sandbox"):
         cleaned = "local_sandbox"
-    elif cleaned not in ("demo", "manual_sandbox"):
-        raise ValueError(f"Invalid provider mode '{mode}'. Choose from 'demo', 'local_sandbox', 'sandbox', 'manual_sandbox'.")
+    elif cleaned != "demo":
+        raise ValueError(f"Invalid provider mode '{mode}'. Choose from 'demo', 'local_sandbox'.")
     _CURRENT_PROVIDER_MODE = cleaned
     return _CURRENT_PROVIDER_MODE
 
@@ -68,13 +66,12 @@ def get_provider_status() -> dict[str, Any]:
         "demo": "Local Demo Mode — Offline deterministic multi-courier simulation.",
         "sandbox": "Local Courier Sandbox (Simulation) — Isolated offline sandbox test environment.",
         "local_sandbox": "Local Courier Sandbox (Simulation) — Isolated offline sandbox test environment.",
-        "manual_sandbox": "Manual Sandbox Entry — Operator-entered rates from external sandbox dashboards.",
     }
 
     return {
         "active_mode": mode,
         "mode_description": mode_descriptions.get(mode, "Local offline mode."),
         "is_offline": True,
-        "available_modes": ["demo", "local_sandbox", "sandbox", "manual_sandbox"],
+        "available_modes": ["demo", "sandbox", "local_sandbox"],
         "default_mode": "demo",
     }

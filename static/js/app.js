@@ -35,12 +35,6 @@ const elements = {
   providerBannerIcon: document.getElementById('providerBannerIcon'),
   providerBannerText: document.getElementById('providerBannerText'),
   providerBannerActions: document.getElementById('providerBannerActions'),
-  btnOpenManualQuoteModal: document.getElementById('btnOpenManualQuoteModal'),
-  modalManualSandbox: document.getElementById('modalManualSandbox'),
-  btnOpenDashboardExportModal: document.getElementById('btnOpenDashboardExportModal'),
-  modalDashboardExport: document.getElementById('modalDashboardExport'),
-  modalExportCloseBtn: document.getElementById('modalExportCloseBtn'),
-  dashboardExportForm: document.getElementById('dashboardExportForm'),
   modalFieldProvenance: document.getElementById('modalFieldProvenance'),
   modalProvCloseBtn: document.getElementById('modalProvCloseBtn'),
   modalProvTitle: document.getElementById('modalProvTitle'),
@@ -51,8 +45,30 @@ const elements = {
   advProvenanceBox: document.getElementById('advProvenanceBox'),
   advProvBadge: document.getElementById('advProvBadge'),
   advProvDetails: document.getElementById('advProvDetails'),
-  modalManualCloseBtn: document.getElementById('modalManualCloseBtn'),
-  manualQuoteForm: document.getElementById('manualQuoteForm'),
+
+  // PIN validation feedback
+  senderPinFeedback: document.getElementById('senderPinFeedback'),
+  recipientPinFeedback: document.getElementById('recipientPinFeedback'),
+
+  // Section A: Recommended Courier Card
+  advServiceTypeBadge: document.getElementById('advServiceTypeBadge'),
+  recSourceFlag: document.getElementById('recSourceFlag'),
+  recBillableWeight: document.getElementById('recBillableWeight'),
+  recVolumetricWeight: document.getElementById('recVolumetricWeight'),
+  recRouteStatus: document.getElementById('recRouteStatus'),
+  recTurnaroundTime: document.getElementById('recTurnaroundTime'),
+  recDisclaimerText: document.getElementById('recDisclaimerText'),
+
+  // Section B: Why Recommended & Alternative Explorer
+  whyRecommendedCard: document.getElementById('whyRecommendedCard'),
+  btnToggleAltRecommendations: document.getElementById('btnToggleAltRecommendations'),
+  altRecommendationsPanel: document.getElementById('altRecommendationsPanel'),
+  btnCloseAltPanel: document.getElementById('btnCloseAltPanel'),
+  selPreferredCourier: document.getElementById('selPreferredCourier'),
+  btnApplyAltPreference: document.getElementById('btnApplyAltPreference'),
+  altRecResultContainer: document.getElementById('altRecResultContainer'),
+  altResultNotice: document.getElementById('altResultNotice'),
+  altCandidatesList: document.getElementById('altCandidatesList'),
 
   // Stepper & Wizard Panels
   wizardStepper: document.getElementById('wizardStepper'),
@@ -198,6 +214,8 @@ document.addEventListener('DOMContentLoaded', () => {
   setupProviderControls();
   setupModal();
   setupMlPrediction();
+  setupAlternativeRecommendations();
+  setupPinLiveValidation();
   updateLiveVolumetric();
 });
 
@@ -474,6 +492,9 @@ function renderRateResults(data) {
     if (elements.advisorCard) {
       elements.advisorCard.classList.add('hidden');
     }
+    if (elements.whyRecommendedCard) {
+      elements.whyRecommendedCard.classList.add('hidden');
+    }
     state.selectedQuoteId = null;
   } else {
     // Route is serviceable and has eligible winner
@@ -490,7 +511,10 @@ function renderRateResults(data) {
 
     if (rec) {
       if (elements.advCourierName) {
-        elements.advCourierName.textContent = `${rec.courier_name} (${rec.service_type})`;
+        elements.advCourierName.textContent = rec.courier_name;
+      }
+      if (elements.advServiceTypeBadge) {
+        elements.advServiceTypeBadge.textContent = rec.service_type || 'Standard Service';
       }
       if (elements.advWinningCost) {
         const costVal = rec.cost_breakdown ? rec.cost_breakdown.total_cost.toFixed(2) : '--.--';
@@ -498,6 +522,26 @@ function renderRateResults(data) {
       }
       if (elements.advWinningSla) {
         elements.advWinningSla.textContent = `${rec.estimated_delivery_days || '--'} Days SLA`;
+      }
+      if (elements.recTurnaroundTime) {
+        elements.recTurnaroundTime.textContent = `${rec.estimated_delivery_days || '--'} Business Days`;
+      }
+      if (elements.recBillableWeight) {
+        const bWt = rec.weight_result?.chargeable_weight_kg || rec.weight_result?.billing_slab_kg || (data.chargeable_weight_estimated || data.actual_weight_kg);
+        elements.recBillableWeight.textContent = `${Number(bWt).toFixed(2)} kg`;
+      }
+      if (elements.recVolumetricWeight) {
+        const vWt = rec.weight_result?.volumetric_weight_kg || data.volumetric_weight_5000 || 0;
+        elements.recVolumetricWeight.textContent = `${Number(vWt).toFixed(2)} kg`;
+      }
+      if (elements.recRouteStatus) {
+        elements.recRouteStatus.textContent = 'Serviceable';
+      }
+      if (elements.recSourceFlag) {
+        elements.recSourceFlag.textContent = rec.source_type === 'LOCAL_SANDBOX' ? 'LOCAL SANDBOX' : 'SIMULATED DATA';
+      }
+      if (elements.whyRecommendedCard) {
+        elements.whyRecommendedCard.classList.remove('hidden');
       }
       if (elements.advExplanation) {
         elements.advExplanation.textContent =
@@ -1353,72 +1397,7 @@ function setupProviderControls() {
     });
   }
 
-  if (elements.btnOpenManualQuoteModal) {
-    elements.btnOpenManualQuoteModal.addEventListener('click', () => {
-      openManualSandboxModal();
-    });
-  }
 
-  if (elements.modalManualCloseBtn) {
-    elements.modalManualCloseBtn.addEventListener('click', () => {
-      closeManualSandboxModal();
-    });
-  }
-
-  if (elements.manualQuoteForm) {
-    elements.manualQuoteForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const orderRef = state.activeOrder ? state.activeOrder.order_reference : document.getElementById('orderRef').value.trim();
-      if (!orderRef) {
-        alert('Please complete Shipment Details or enter an Order Reference before adding manual quotes.');
-        return;
-      }
-
-      const payload = {
-        order_reference: orderRef,
-        courier_name: document.getElementById('mqCourierName').value.trim(),
-        service_type: document.getElementById('mqServiceType').value.trim(),
-        estimated_delivery_days: parseInt(document.getElementById('mqEstDays').value) || 3,
-        base_freight: parseFloat(document.getElementById('mqBase').value) || 0.0,
-        fuel_surcharge: parseFloat(document.getElementById('mqFuel').value) || 0.0,
-        tax_amount: parseFloat(document.getElementById('mqTax').value) || 0.0,
-        total_cost: parseFloat(document.getElementById('mqTotal').value) || 0.0,
-        dashboard_reference: document.getElementById('mqDashboardRef').value.trim() || null,
-        source_identifier: (document.getElementById('mqSourceId')?.value.trim()) || 'operator-dashboard-manual',
-        source_url: (document.getElementById('mqSourceUrl')?.value.trim()) || (document.getElementById('mqDashboardRef')?.value.trim()) || null,
-        notes: document.getElementById('mqNotes').value.trim() || null,
-      };
-
-      try {
-        const res = await fetch('/api/manual-sandbox/quote', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          alert(`Failed to save manual quote: ${data.detail}`);
-          return;
-        }
-
-        closeManualSandboxModal();
-        elements.manualQuoteForm.reset();
-
-        if (state.activeQuotes) {
-          const newQ = data.quote;
-          state.activeQuotes = state.activeQuotes.filter(q => q.quote_id !== newQ.quote_id).concat([newQ]);
-          renderRateResults({
-            order: state.activeOrder,
-            quotes: state.activeQuotes,
-            ranking: data.selected_winner ? { selected_winner: { quote: data.selected_winner, rank: 1, total_cost: data.selected_winner.cost_breakdown.total_cost } } : state.rankingResult,
-            advisor: state.advisorResult,
-          });
-        }
-      } catch (err) {
-        alert(`Error recording manual quote: ${err.message}`);
-      }
-    });
-  }
 }
 
 async function loadProviderStatus() {
@@ -1446,19 +1425,10 @@ function updateProviderBanner(status) {
     elements.providerModeBanner.classList.add('banner-demo');
     elements.providerBannerIcon.textContent = '[DEMO]';
     elements.providerBannerText.innerHTML = 'Operating in <strong>Local Demo Mode</strong> (100% offline simulated carriers). Quotes, AWBs, and tracking are simulated demonstration data.';
-    if (elements.btnOpenManualQuoteModal) elements.btnOpenManualQuoteModal.classList.add('hidden');
-  } else if (mode === 'sandbox' || mode === 'local_sandbox') {
+  } else {
     elements.providerModeBanner.classList.add('banner-sandbox');
     elements.providerBannerIcon.textContent = '[SANDBOX]';
     elements.providerBannerText.innerHTML = 'Operating in <strong>Local Courier Sandbox (Simulation)</strong>. Deterministic offline sandbox test environment using synthetic carrier data. Zero external API calls or credentials required.';
-    if (elements.btnOpenManualQuoteModal) elements.btnOpenManualQuoteModal.classList.add('hidden');
-  } else if (mode === 'manual_sandbox') {
-    elements.providerModeBanner.classList.add('banner-manual');
-    elements.providerBannerIcon.textContent = '[MANUAL]';
-    elements.providerBannerText.innerHTML = 'Operating in <strong>Manual Sandbox Entry Mode</strong>. Record rates, SLAs, and tracking references manually copied from your courier sandbox dashboard. Labeled as <strong>Manual Entry — Not API Verified</strong>.';
-    elements.providerBannerActions.innerHTML = `<button class="btn-primary btn-sm" onclick="openManualSandboxModal()">Add Manual Quote</button>`;
-    if (elements.btnOpenManualQuoteModal) elements.btnOpenManualQuoteModal.classList.remove('hidden');
-    if (elements.btnOpenDashboardExportModal) elements.btnOpenDashboardExportModal.classList.remove('hidden');
   }
 }
 
@@ -1469,17 +1439,7 @@ window.switchProviderMode = async function(mode) {
   }
 };
 
-window.openManualSandboxModal = function() {
-  if (elements.modalManualSandbox) {
-    elements.modalManualSandbox.classList.remove('hidden');
-  }
-};
 
-window.closeManualSandboxModal = function() {
-  if (elements.modalManualSandbox) {
-    elements.modalManualSandbox.classList.add('hidden');
-  }
-};
 
 // Packaging 3D Optimizer Tab
 // -----------------------------------------------------------------------------
@@ -1855,3 +1815,232 @@ window.closeDashboardExportModal = function() {
     elements.modalDashboardExport.classList.add('hidden');
   }
 };
+
+// -----------------------------------------------------------------------------
+// Interactive Alternative Recommendations (Requirement 1)
+// -----------------------------------------------------------------------------
+
+let currentAltPreference = 'lowest_cost';
+
+function setupAlternativeRecommendations() {
+  if (elements.btnToggleAltRecommendations && elements.altRecommendationsPanel) {
+    elements.btnToggleAltRecommendations.addEventListener('click', () => {
+      elements.altRecommendationsPanel.classList.toggle('hidden');
+      if (!elements.altRecommendationsPanel.classList.contains('hidden')) {
+        fetchAndRenderAlternativeRecommendations(currentAltPreference, elements.selPreferredCourier ? elements.selPreferredCourier.value : null);
+      }
+    });
+  }
+
+  if (elements.btnCloseAltPanel && elements.altRecommendationsPanel) {
+    elements.btnCloseAltPanel.addEventListener('click', () => {
+      elements.altRecommendationsPanel.classList.add('hidden');
+    });
+  }
+
+  document.querySelectorAll('.btn-pref-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.btn-pref-chip').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentAltPreference = btn.getAttribute('data-pref');
+      fetchAndRenderAlternativeRecommendations(currentAltPreference, elements.selPreferredCourier ? elements.selPreferredCourier.value : null);
+    });
+  });
+
+  if (elements.btnApplyAltPreference) {
+    elements.btnApplyAltPreference.addEventListener('click', () => {
+      const preferred = elements.selPreferredCourier ? elements.selPreferredCourier.value : null;
+      fetchAndRenderAlternativeRecommendations(currentAltPreference, preferred);
+    });
+  }
+}
+
+async function fetchAndRenderAlternativeRecommendations(prefMode, preferredCourier) {
+  if (!state.activeOrder || !state.activeOrder.order_reference) {
+    return;
+  }
+
+  try {
+    const payload = {
+      order_reference: state.activeOrder.order_reference,
+      current_recommended_quote_id: state.selectedQuoteId,
+      preference_mode: prefMode || 'balanced',
+      preferred_courier: preferredCourier || null,
+      exclude_current: true,
+    };
+
+    const res = await fetch('/api/recommendations/alternative', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      console.warn('Failed to fetch alternative recommendations');
+      return;
+    }
+
+    const data = await res.json();
+    const altRes = data.alternative_result;
+    if (!altRes) return;
+
+    if (elements.altRecResultContainer) {
+      elements.altRecResultContainer.classList.remove('hidden');
+    }
+
+    if (elements.altResultNotice) {
+      elements.altResultNotice.textContent = altRes.decision_explanation;
+    }
+
+    if (elements.altCandidatesList) {
+      elements.altCandidatesList.innerHTML = '';
+      if (!altRes.eligible_alternatives || altRes.eligible_alternatives.length === 0) {
+        elements.altCandidatesList.innerHTML = '<div style="font-size:12px; color:var(--text-muted); padding:8px;">No other eligible alternatives available for this route.</div>';
+      } else {
+        altRes.eligible_alternatives.forEach(alt => {
+          const isCurrentSelected = alt.quote_id === state.selectedQuoteId;
+          const card = document.createElement('div');
+          card.className = `alt-candidate-card ${isCurrentSelected ? 'selected' : ''}`;
+          card.innerHTML = `
+            <div class="alt-candidate-info">
+              <span class="alt-candidate-name">${alt.courier_name} (${alt.service_type})</span>
+              <div style="font-size: 13px; font-weight: 700; color: var(--primary);">
+                INR ${alt.total_cost.toFixed(2)} &bull; ${alt.estimated_delivery_days || '--'} Days SLA
+              </div>
+              <span class="alt-candidate-tradeoff">${alt.tradeoff_explanation}</span>
+            </div>
+            <button type="button" class="btn-sm ${isCurrentSelected ? 'btn-ghost' : 'btn-primary'}" onclick="applyAlternativeQuote('${alt.quote_id}')">
+              ${isCurrentSelected ? 'Currently Selected' : 'Switch to this Courier'}
+            </button>
+          `;
+          elements.altCandidatesList.appendChild(card);
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Error fetching alternative recommendations:', err);
+  }
+}
+
+window.applyAlternativeQuote = function(quoteId) {
+  selectCourier(quoteId);
+
+  // Requirement 1: Invalidate approval fingerprint and downstream state
+  if (elements.chkOperatorConfirm) {
+    elements.chkOperatorConfirm.checked = false;
+  }
+  if (elements.btnApproveDispatch) {
+    elements.btnApproveDispatch.disabled = true;
+  }
+  state.isApprovalGranted = false;
+
+  // Visual confirmation
+  alert('Courier recommendation updated. Operator dispatch approval has been reset and requires renewed confirmation.');
+};
+
+// -----------------------------------------------------------------------------
+// Real-time Verified Indian PIN Code Validation (Requirement 2)
+// -----------------------------------------------------------------------------
+
+async function validatePinField(pinInput, feedbackEl, role) {
+  if (!pinInput || !feedbackEl) return true;
+  const pin = pinInput.value.trim();
+
+  if (!pin) {
+    feedbackEl.className = 'pin-feedback-msg';
+    feedbackEl.textContent = '';
+    return false;
+  }
+
+  // Pure PIN format validation
+  if (!/^\d{6}$/.test(pin)) {
+    feedbackEl.className = 'pin-feedback-msg pin-feedback-invalid';
+    if (!/^\d+$/.test(pin)) {
+      feedbackEl.textContent = 'Invalid format: PIN must contain only 6 digits (no letters or symbols).';
+    } else if (pin.length < 6) {
+      feedbackEl.textContent = `Incomplete PIN: enter ${6 - pin.length} more digit(s).`;
+    } else {
+      feedbackEl.textContent = 'Invalid format: Indian PIN codes must have exactly 6 digits.';
+    }
+    return false;
+  }
+
+  if (pin.startsWith('0')) {
+    feedbackEl.className = 'pin-feedback-msg pin-feedback-invalid';
+    feedbackEl.textContent = 'Invalid PIN: Indian PIN codes never start with 0.';
+    return false;
+  }
+
+  try {
+    const sPin = document.getElementById('senderPin') ? document.getElementById('senderPin').value.trim() : '110001';
+    const rPin = document.getElementById('recipientPin') ? document.getElementById('recipientPin').value.trim() : '400001';
+    const sCity = document.getElementById('senderCity') ? document.getElementById('senderCity').value.trim() : '';
+    const sState = document.getElementById('senderState') ? document.getElementById('senderState').value.trim() : '';
+    const rCity = document.getElementById('recipientCity') ? document.getElementById('recipientCity').value.trim() : '';
+    const rState = document.getElementById('recipientState') ? document.getElementById('recipientState').value.trim() : '';
+
+    const res = await fetch('/api/serviceability', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        origin_pin: role === 'pickup' ? pin : sPin,
+        destination_pin: role === 'delivery' ? pin : rPin,
+        origin_city: sCity,
+        origin_state: sState,
+        destination_city: rCity,
+        destination_state: rState,
+      }),
+    });
+
+    if (!res.ok) return false;
+    const data = await res.json();
+    const evalData = role === 'pickup' ? data.origin_eval : data.destination_eval;
+
+    if (!evalData) return true;
+
+    if (evalData.status === 'INVALID_FORMAT') {
+      feedbackEl.className = 'pin-feedback-msg pin-feedback-invalid';
+      feedbackEl.textContent = evalData.message;
+      return false;
+    } else if (evalData.status === 'PIN_NOT_FOUND') {
+      feedbackEl.className = 'pin-feedback-msg pin-feedback-invalid';
+      feedbackEl.textContent = 'PIN code not found in verified Indian postal database.';
+      return false;
+    } else if (evalData.status === 'VALID_PIN_UNSERVICEABLE') {
+      feedbackEl.className = 'pin-feedback-msg pin-feedback-warning';
+      feedbackEl.textContent = `Valid PIN (${evalData.postal_info?.city || 'India'}), but no available couriers service this area.`;
+      return true;
+    } else {
+      feedbackEl.className = 'pin-feedback-msg pin-feedback-valid';
+      feedbackEl.textContent = `Verified Indian PIN: ${evalData.postal_info?.city || ''}, ${evalData.postal_info?.state || ''}`;
+      if (evalData.address_conflict && evalData.conflict_message) {
+        feedbackEl.className = 'pin-feedback-msg pin-feedback-warning';
+        feedbackEl.textContent += ` — ${evalData.conflict_message}`;
+      }
+      return true;
+    }
+  } catch (err) {
+    console.warn('Real-time PIN lookup failed:', err);
+    return true;
+  }
+}
+
+function setupPinLiveValidation() {
+  if (elements.senderPin && elements.senderPinFeedback) {
+    elements.senderPin.addEventListener('input', () => {
+      validatePinField(elements.senderPin, elements.senderPinFeedback, 'pickup');
+    });
+    elements.senderPin.addEventListener('blur', () => {
+      validatePinField(elements.senderPin, elements.senderPinFeedback, 'pickup');
+    });
+  }
+
+  if (elements.recipientPin && elements.recipientPinFeedback) {
+    elements.recipientPin.addEventListener('input', () => {
+      validatePinField(elements.recipientPin, elements.recipientPinFeedback, 'delivery');
+    });
+    elements.recipientPin.addEventListener('blur', () => {
+      validatePinField(elements.recipientPin, elements.recipientPinFeedback, 'delivery');
+    });
+  }
+}

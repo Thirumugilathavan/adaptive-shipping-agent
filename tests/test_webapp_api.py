@@ -155,7 +155,7 @@ def test_provider_status_and_mode_endpoints(client):
     assert "available_modes" in st_data
     assert "demo" in st_data["available_modes"]
     assert "sandbox" in st_data["available_modes"]
-    assert "manual_sandbox" in st_data["available_modes"]
+    assert "manual_sandbox" not in st_data["available_modes"]
     assert st_data.get("is_offline") is True
 
     # 2. Switch to sandbox mode
@@ -168,10 +168,9 @@ def test_provider_status_and_mode_endpoints(client):
     assert lsbx_res.status_code == 200
     assert lsbx_res.json()["active_mode"] == "local_sandbox"
 
-    # 3. Switch to manual sandbox mode
+    # 3. Switching to manual sandbox mode must be rejected with 400
     manual_res = client.post("/api/provider/mode", json={"mode": "manual_sandbox"})
-    assert manual_res.status_code == 200
-    assert manual_res.json()["active_mode"] == "manual_sandbox"
+    assert manual_res.status_code == 400
 
     # 4. Unknown/external modes must be rejected
     bad_res = client.post("/api/provider/mode", json={"mode": "shipengine"})
@@ -232,7 +231,7 @@ def test_manual_sandbox_quote_entry(client):
     })
     order_ref = rate_res.json()["order"]["order_reference"]
 
-    # Post manual sandbox quote
+    # Post manual sandbox quote (deprecated / removed, returns 410)
     mq_res = client.post("/api/manual-sandbox/quote", json={
         "order_reference": order_ref,
         "courier_name": "Delhivery Surface Sandbox",
@@ -245,13 +244,8 @@ def test_manual_sandbox_quote_entry(client):
         "dashboard_reference": "DLV-SBX-ORD-9912",
         "notes": "Verified rate entered from Delhivery sandbox portal",
     })
-    assert mq_res.status_code == 200
-    mq_data = mq_res.json()
-    assert mq_data["status"] == "created"
-    assert mq_data["quote"]["source_type"] == "MANUAL_SANDBOX"
-    assert mq_data["quote"]["is_demo_data"] is False
-    assert "Manual Entry — Not API Verified" in mq_data["quote"]["courier_name"]
-    assert mq_data["quote"]["cost_breakdown"]["total_cost"] == 123.31
+    assert mq_res.status_code == 410
+    assert "Manual Sandbox Entry mode has been removed" in mq_res.json()["detail"]
 
 
 def test_sandbox_selection_switches_provider_and_next_quote_uses_sandbox_adapter(client):

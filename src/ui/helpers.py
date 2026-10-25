@@ -35,8 +35,7 @@ from src.domain.ranking import RankingResult, RankedCourierQuote
 
 def validate_pin_code(pin: str, pin_type: str = "", country: str = "India") -> tuple[bool, str]:
     """
-    Validate postal PIN/ZIP code format.
-    Must be exactly 6 numeric digits for India, or 5 digits for US.
+    Validate postal PIN/ZIP code format and verify against Indian postal database.
     Return (is_valid, error_message). Empty error = ok.
     """
     cleaned = pin.strip() if pin else ""
@@ -52,8 +51,16 @@ def validate_pin_code(pin: str, pin_type: str = "", country: str = "India") -> t
             return False, f"Enter a valid 5-digit {type_str}ZIP code (e.g. 78756).".replace("  ", " ")
         return True, ""
 
-    if not re.fullmatch(r"^[1-9]\d{5}$", cleaned):
-        return False, f"Enter a valid 6-digit {type_str}PIN code (must be exactly 6 digits).".replace("  ", " ")
+    from src.domain.pincode_database import validate_indian_pin_format, lookup_verified_pin
+
+    is_fmt, err_fmt = validate_indian_pin_format(cleaned)
+    if not is_fmt:
+        return False, f"Enter a valid 6-digit {type_str}PIN code. {err_fmt}".replace("  ", " ").strip()
+
+    is_found, info, msg_found = lookup_verified_pin(cleaned)
+    if not is_found:
+        return False, f"{type_str.capitalize()}PIN code '{cleaned}' was not found in the verified India Post database.".replace("  ", " ").strip()
+
     return True, ""
 
 

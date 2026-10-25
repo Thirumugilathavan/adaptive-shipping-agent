@@ -78,8 +78,13 @@ class Address(BaseModel):
         country = (info.data.get("country") if hasattr(info, "data") else "India") or "India"
         c = str(country).strip().upper()
         if c in ("INDIA", "IN"):
-            if not re.fullmatch(r"^\d{6}$", cleaned):
-                raise ValueError(f"PIN code must be exactly 6 digits, got '{cleaned}'")
+            from src.domain.pincode_database import validate_indian_pin_format, lookup_verified_pin
+            is_fmt, err_fmt = validate_indian_pin_format(cleaned)
+            if not is_fmt:
+                raise ValueError(err_fmt)
+            is_found, _, err_found = lookup_verified_pin(cleaned)
+            if not is_found:
+                raise ValueError(err_found)
         elif c in ("US", "USA", "UNITED STATES"):
             if not re.fullmatch(r"^\d{5}$", cleaned):
                 raise ValueError(f"US ZIP code must be 5 digits (e.g. 78756), got '{cleaned}'")

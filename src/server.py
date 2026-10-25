@@ -225,7 +225,7 @@ def health_check() -> dict[str, Any]:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "database": "connected",
         "active_provider_mode": get_active_provider_mode(),
-        "provider_modes": ["demo", "sandbox", "manual_sandbox"],
+        "provider_modes": ["demo", "sandbox"],
     }
 
 
@@ -241,7 +241,7 @@ def get_provider_status_api() -> dict[str, Any]:
 
 @app.post("/api/provider/mode")
 def set_provider_mode_api(payload: ProviderModePayload) -> dict[str, Any]:
-    """Switch active provider mode between 'demo', 'sandbox', and 'manual_sandbox'."""
+    """Switch active provider mode between 'demo' and 'sandbox'."""
     try:
         new_mode = set_active_provider_mode(payload.mode)
         return {"status": "ok", "active_mode": new_mode}
@@ -250,274 +250,34 @@ def set_provider_mode_api(payload: ProviderModePayload) -> dict[str, Any]:
 
 
 class ManualSandboxQuotePayload(BaseModel):
-    order_reference: str
-    courier_name: str
-    service_type: str = "Standard Ground"
-    base_freight: float
-    fuel_surcharge: float = 0.0
-    tax_amount: float = 0.0
-    total_cost: float
-    estimated_delivery_days: int = 3
-    notes: Optional[str] = None
-    dashboard_reference: Optional[str] = None
-    source_identifier: Optional[str] = None
-    source_url: Optional[str] = None
-    retrieval_timestamp: Optional[str] = None
-    retrieval_method: Optional[str] = "MANUAL_DASHBOARD_TRANSCRIPTION"
-    raw_data: Optional[dict[str, Any]] = None
+    order_reference: Optional[str] = None
+    courier_name: Optional[str] = None
 
 
 class DashboardExportPayload(BaseModel):
-    order_reference: str
-    source_identifier: str = "courier-dashboard-export"
-    source_url: Optional[str] = None
-    retrieval_timestamp: Optional[str] = None
-    quotes: list[dict[str, Any]] = Field(default_factory=list)
+    order_reference: Optional[str] = None
 
 
 @app.post("/api/manual-sandbox/quote")
-def create_manual_sandbox_quote(payload: ManualSandboxQuotePayload) -> dict[str, Any]:
+def create_manual_sandbox_quote(payload: Optional[ManualSandboxQuotePayload] = None) -> dict[str, Any]:
     """
-    Record a manually verified quote copied by the operator from a carrier sandbox dashboard.
-    Stores source IDs, dashboard URLs, retrieval timestamps, and field-level provenance.
+    Disabled endpoint: Manual Sandbox Entry mode has been removed from the system.
     """
-    order = _ACTIVE_ORDERS_CACHE.get(payload.order_reference)
-    if not order:
-        order_row = db_manager.get_order(payload.order_reference)
-        if not order_row:
-            raise HTTPException(status_code=404, detail=f"Order '{payload.order_reference}' not found.")
-        sender = Address.model_validate_json(order_row["sender_json"])
-        recipient = Address.model_validate_json(order_row["recipient_json"])
-        order = OrderInput(
-            order_reference=order_row["order_reference"],
-            sender=sender,
-            recipient=recipient,
-            parcel_weight_kg=order_row["parcel_weight_kg"],
-            dimensions=Dimensions(
-                length_cm=order_row["length_cm"],
-                width_cm=order_row["width_cm"],
-                height_cm=order_row["height_cm"],
-            ),
-            package_type=PackageType(order_row["package_type"]),
-            is_cod=bool(order_row["is_cod"]),
-            cod_amount=order_row["cod_amount"] or 0.0,
-        )
-        _ACTIVE_ORDERS_CACHE[order.order_reference] = order
-
-    courier_code_clean = re.sub(r'[^A-Z0-9_]', '_', payload.courier_name.upper().strip())
-    quote_id = f"MANUAL-{uuid.uuid4().hex[:8]}"
-    now_iso = datetime.now(timezone.utc).isoformat()
-    retrieval_ts = payload.retrieval_timestamp or now_iso
-    source_id = payload.source_identifier or "operator-dashboard-manual"
-    source_url = payload.source_url or payload.dashboard_reference or None
-    retrieval_method = payload.retrieval_method or "MANUAL_DASHBOARD_TRANSCRIPTION"
-
-    input_hash = hashlib.sha256(
-        f"{order.order_reference}:{order.sender.pin_code}:{order.recipient.pin_code}:{order.parcel_weight_kg}".encode()
-    ).hexdigest()[:12]
-
-    subtotal = payload.base_freight + payload.fuel_surcharge
-    fuel_rate_pct = round((payload.fuel_surcharge / payload.base_freight * 100.0), 2) if payload.base_freight > 0 else 0.0
-    tax_rate_pct = round((payload.tax_amount / subtotal * 100.0), 2) if subtotal > 0 else 18.0
-
-    breakdown = CostBreakdown(
-        base_freight=payload.base_freight,
-        fuel_surcharge=payload.fuel_surcharge,
-        fuel_surcharge_rate_pct=fuel_rate_pct,
-        cod_fee=0.0,
-        handling_fee=0.0,
-        subtotal_before_tax=round(subtotal, 2),
-        tax_amount=payload.tax_amount,
-        tax_rate_pct=tax_rate_pct,
-        total_cost=payload.total_cost,
-        currency="INR",
+    raise HTTPException(
+        status_code=410,
+        detail="Manual Sandbox Entry mode has been removed from the application. Please operate in Local Demo Mode or Local Courier Sandbox.",
     )
-
-    weight_res = WeightResult(
-        actual_weight_kg=order.parcel_weight_kg,
-        volumetric_weight_kg=round(order.dimensions.volume_cm3 / 5000.0, 3),
-        chargeable_weight_kg=order.parcel_weight_kg,
-        billing_slab_kg=order.parcel_weight_kg,
-        divisor_used=5000.0,
-        is_volumetric_penalty=False,
-    )
-
-    raw_snapshot = payload.raw_data or {
-        "courier_name": payload.courier_name,
-        "service_type": payload.service_type,
-        "base_freight": payload.base_freight,
-        "fuel_surcharge": payload.fuel_surcharge,
-        "tax_amount": payload.tax_amount,
-        "total_cost": payload.total_cost,
-        "estimated_delivery_days": payload.estimated_delivery_days,
-        "dashboard_reference": payload.dashboard_reference,
-        "source_url": source_url,
-        "source_id": source_id,
-        "notes": payload.notes,
-        "input_timestamp": retrieval_ts,
-    }
-
-    quote = CourierQuote(
-        quote_id=quote_id,
-        courier_code=f"MANUAL_{courier_code_clean}",
-        courier_name=f"{payload.courier_name} (Manual Entry — Not API Verified)",
-        service_type=payload.service_type,
-        estimated_delivery_days=payload.estimated_delivery_days,
-        is_serviceable=True,
-        is_eligible=True,
-        eligibility_status="ELIGIBLE",
-        evidence_source="Manual Sandbox Dashboard Entry (Not API Verified)",
-        evidence_url=source_url,
-        weight_result=weight_res,
-        cost_breakdown=breakdown,
-        retrieval_timestamp=retrieval_ts,
-        source_type="MANUAL_SANDBOX",
-        source_id=source_id,
-        retrieval_method=retrieval_method,
-        raw_response_snapshot=raw_snapshot,
-        input_hash=input_hash,
-        decision_explanation=f"Manual entry from external dashboard. Ref: {payload.dashboard_reference or 'N/A'}. Source: {source_id}. URL: {source_url or 'N/A'}. Not API verified. Notes: {payload.notes or 'None'}",
-        is_demo_data=False,
-        missing_evidence=[
-            "Manual Entry — Not API Verified: Rate and SLA transcribed from external dashboard without direct API verification",
-            "Operator entered manually; not retrieved via direct API call",
-        ],
-        disclaimer="MANUAL ENTRY — NOT API VERIFIED: Entered manually by operator from external sandbox dashboard.",
-    )
-    quote.populate_standard_field_provenance(order.order_reference)
-
-    db_manager.save_quote_model(quote, order.order_reference)
-    existing_quotes = _ACTIVE_QUOTES_CACHE.get(order.order_reference, [])
-    updated_quotes = [q for q in existing_quotes if q.quote_id != quote.quote_id] + [quote]
-    _ACTIVE_QUOTES_CACHE[order.order_reference] = updated_quotes
-
-    ranking = rank_couriers(updated_quotes, RankingPreferences(mode=RankingMode.LOWEST_COST))
-
-    return {
-        "status": "created",
-        "quote": quote.model_dump(),
-        "quotes_count": len(updated_quotes),
-        "selected_winner": ranking.selected_winner.quote.model_dump() if ranking and ranking.selected_winner else None,
-    }
 
 
 @app.post("/api/manual-sandbox/dashboard-export")
-def import_dashboard_export(payload: DashboardExportPayload) -> dict[str, Any]:
+def import_dashboard_export(payload: Optional[DashboardExportPayload] = None) -> dict[str, Any]:
     """
-    Import and parse exported or copied dashboard rate payloads from a courier aggregator.
-    Extracts quote fields and attaches complete provenance (source ID, source URL, timestamp).
+    Disabled endpoint: Manual Sandbox Entry mode has been removed from the system.
     """
-    order = _ACTIVE_ORDERS_CACHE.get(payload.order_reference)
-    if not order:
-        order_row = db_manager.get_order(payload.order_reference)
-        if not order_row:
-            raise HTTPException(status_code=404, detail=f"Order '{payload.order_reference}' not found.")
-        sender = Address.model_validate_json(order_row["sender_json"])
-        recipient = Address.model_validate_json(order_row["recipient_json"])
-        order = OrderInput(
-            order_reference=order_row["order_reference"],
-            sender=sender,
-            recipient=recipient,
-            parcel_weight_kg=order_row["parcel_weight_kg"],
-            dimensions=Dimensions(
-                length_cm=order_row["length_cm"],
-                width_cm=order_row["width_cm"],
-                height_cm=order_row["height_cm"],
-            ),
-            package_type=PackageType(order_row["package_type"]),
-            is_cod=bool(order_row["is_cod"]),
-            cod_amount=order_row["cod_amount"] or 0.0,
-        )
-        _ACTIVE_ORDERS_CACHE[order.order_reference] = order
-
-    now_iso = datetime.now(timezone.utc).isoformat()
-    retrieval_ts = payload.retrieval_timestamp or now_iso
-    source_id = payload.source_identifier or "courier-dashboard-export"
-    source_url = payload.source_url or "https://dashboard.courier-aggregator.mock"
-    input_hash = hashlib.sha256(
-        f"{order.order_reference}:{order.sender.pin_code}:{order.recipient.pin_code}:{order.parcel_weight_kg}".encode()
-    ).hexdigest()[:12]
-
-    imported_quotes: list[CourierQuote] = []
-    for item in payload.quotes:
-        c_name = item.get("courier_name") or item.get("name") or "Aggregator Courier"
-        c_code = re.sub(r'[^A-Z0-9_]', '_', str(c_name).upper().strip())
-        s_type = item.get("service_type") or item.get("tier") or "Standard Express"
-        base_f = float(item.get("base_freight") or item.get("freight") or item.get("rate") or 0.0)
-        fuel = float(item.get("fuel_surcharge") or item.get("fuel") or 0.0)
-        tax = float(item.get("tax_amount") or item.get("tax") or item.get("gst") or 0.0)
-        total_c = float(item.get("total_cost") or item.get("total") or (base_f + fuel + tax))
-        est_days = int(item.get("estimated_delivery_days") or item.get("sla_days") or item.get("etd_days") or 3)
-
-        subtotal = base_f + fuel
-        fuel_pct = round((fuel / base_f * 100.0), 2) if base_f > 0 else 0.0
-        tax_pct = round((tax / subtotal * 100.0), 2) if subtotal > 0 else 18.0
-
-        breakdown = CostBreakdown(
-            base_freight=base_f,
-            fuel_surcharge=fuel,
-            fuel_surcharge_rate_pct=fuel_pct,
-            cod_fee=0.0,
-            handling_fee=0.0,
-            subtotal_before_tax=round(subtotal, 2),
-            tax_amount=tax,
-            tax_rate_pct=tax_pct,
-            total_cost=total_c,
-            currency="INR",
-        )
-        weight_res = WeightResult(
-            actual_weight_kg=order.parcel_weight_kg,
-            volumetric_weight_kg=round(order.dimensions.volume_cm3 / 5000.0, 3),
-            chargeable_weight_kg=order.parcel_weight_kg,
-            billing_slab_kg=order.parcel_weight_kg,
-            divisor_used=5000.0,
-            is_volumetric_penalty=False,
-        )
-
-        quote_id = f"EXPORT-{uuid.uuid4().hex[:8]}"
-        q = CourierQuote(
-            quote_id=quote_id,
-            courier_code=f"EXP_{c_code}",
-            courier_name=f"{c_name} (Dashboard Export)",
-            service_type=s_type,
-            estimated_delivery_days=est_days,
-            is_serviceable=True,
-            is_eligible=True,
-            eligibility_status="ELIGIBLE",
-            evidence_source=f"Aggregator Dashboard Export ({source_id})",
-            evidence_url=source_url,
-            weight_result=weight_res,
-            cost_breakdown=breakdown,
-            retrieval_timestamp=retrieval_ts,
-            source_type="MANUAL_SANDBOX",
-            source_id=source_id,
-            retrieval_method="DASHBOARD_EXPORT_PARSER",
-            raw_response_snapshot=item,
-            input_hash=input_hash,
-            decision_explanation=f"Parsed from aggregator dashboard export payload. Source: {source_id}. URL: {source_url}.",
-            is_demo_data=False,
-            missing_evidence=[
-                "Transcribed from aggregator dashboard export snapshot",
-                "Direct real-time carrier API connection not used",
-            ],
-            disclaimer="DASHBOARD EXPORT: Parsed from courier dashboard export payload.",
-        )
-        q.populate_standard_field_provenance(order.order_reference)
-        db_manager.save_quote_model(q, order.order_reference)
-        imported_quotes.append(q)
-
-    existing = _ACTIVE_QUOTES_CACHE.get(order.order_reference, [])
-    updated = existing + imported_quotes
-    _ACTIVE_QUOTES_CACHE[order.order_reference] = updated
-    ranking = rank_couriers(updated, RankingPreferences(mode=RankingMode.LOWEST_COST))
-
-    return {
-        "status": "imported",
-        "imported_count": len(imported_quotes),
-        "total_quotes": len(updated),
-        "quotes": [q.model_dump() for q in imported_quotes],
-        "selected_winner": ranking.selected_winner.quote.model_dump() if ranking and ranking.selected_winner else None,
-    }
+    raise HTTPException(
+        status_code=410,
+        detail="Manual Sandbox Entry mode has been removed from the application. Please operate in Local Demo Mode or Local Courier Sandbox.",
+    )
 
 
 @app.get("/api/quotes/{quote_id}/provenance")
@@ -700,6 +460,71 @@ def load_official_scenario(test_case_id: str) -> dict[str, Any]:
     }
 
 
+class AlternativeRecommendationRequest(BaseModel):
+    order_reference: str
+    current_recommended_quote_id: Optional[str] = None
+    preference_mode: str = "balanced"  # lowest_cost, fastest, balanced, preferred_courier, next_best
+    preferred_courier: Optional[str] = None
+    max_budget: Optional[float] = None
+    max_delivery_days: Optional[int] = None
+    exclude_current: bool = True
+
+
+@app.post("/api/recommendations/alternative")
+def get_alternative_recommendation_endpoint(req: AlternativeRecommendationRequest) -> dict[str, Any]:
+    """
+    Generate an alternative courier recommendation under requested user preference
+    (Lowest cost, Fastest delivery, Balanced, or Preferred carrier).
+    Recalculates ranking and invalidates any downstream approval state.
+    """
+    quotes = _ACTIVE_QUOTES_CACHE.get(req.order_reference)
+    if not quotes:
+        db_quotes_data = db_manager.get_quotes_for_order(req.order_reference)
+        quotes = []
+        for row in db_quotes_data:
+            if row.get("quote_data_json"):
+                try:
+                    quotes.append(CourierQuote.model_validate_json(row["quote_data_json"]))
+                except Exception:
+                    pass
+
+    if not quotes:
+        raise HTTPException(status_code=404, detail=f"No quotes found for order '{req.order_reference}'.")
+
+    from src.domain.advisor import find_alternative_recommendations
+
+    alt_result = find_alternative_recommendations(
+        quotes=quotes,
+        current_winner_id=req.current_recommended_quote_id,
+        preference_mode=req.preference_mode,
+        preferred_courier=req.preferred_courier,
+        max_budget=req.max_budget,
+        max_delivery_days=req.max_delivery_days,
+        exclude_current_winner=req.exclude_current,
+    )
+
+    new_quote_id = (
+        alt_result.selected_recommendation.quote_id
+        if alt_result.selected_recommendation
+        else None
+    )
+
+    return {
+        "status": "SUCCESS",
+        "order_reference": req.order_reference,
+        "preference_mode": req.preference_mode,
+        "selected_quote_id": new_quote_id,
+        "alternative_result": alt_result.model_dump(),
+        "approval_invalidated": alt_result.is_switched,
+        "notice": (
+            "Recommendation updated. Renewed operator approval is required before booking dispatch."
+            if alt_result.is_switched
+            else "Current recommendation retained."
+        ),
+    }
+
+
+
 # -----------------------------------------------------------------------------
 # 10 Evaluator Edge-Case Scenarios (Demo A through Demo J)
 # -----------------------------------------------------------------------------
@@ -777,6 +602,71 @@ def load_scenario(scenario_id: str) -> dict[str, Any]:
         "loss_reasons": getattr(ranking, "loss_reasons", {}),
         "decision_provenance": getattr(ranking, "decision_provenance", {}),
     }
+
+
+class AlternativeRecommendationRequest(BaseModel):
+    order_reference: str
+    current_recommended_quote_id: Optional[str] = None
+    preference_mode: str = "balanced"  # lowest_cost, fastest, balanced, preferred_courier, next_best
+    preferred_courier: Optional[str] = None
+    max_budget: Optional[float] = None
+    max_delivery_days: Optional[int] = None
+    exclude_current: bool = True
+
+
+@app.post("/api/recommendations/alternative")
+def get_alternative_recommendation_endpoint(req: AlternativeRecommendationRequest) -> dict[str, Any]:
+    """
+    Generate an alternative courier recommendation under requested user preference
+    (Lowest cost, Fastest delivery, Balanced, or Preferred carrier).
+    Recalculates ranking and invalidates any downstream approval state.
+    """
+    quotes = _ACTIVE_QUOTES_CACHE.get(req.order_reference)
+    if not quotes:
+        db_quotes_data = db_manager.get_quotes_for_order(req.order_reference)
+        quotes = []
+        for row in db_quotes_data:
+            if row.get("quote_data_json"):
+                try:
+                    quotes.append(CourierQuote.model_validate_json(row["quote_data_json"]))
+                except Exception:
+                    pass
+
+    if not quotes:
+        raise HTTPException(status_code=404, detail=f"No quotes found for order '{req.order_reference}'.")
+
+    from src.domain.advisor import find_alternative_recommendations
+
+    alt_result = find_alternative_recommendations(
+        quotes=quotes,
+        current_winner_id=req.current_recommended_quote_id,
+        preference_mode=req.preference_mode,
+        preferred_courier=req.preferred_courier,
+        max_budget=req.max_budget,
+        max_delivery_days=req.max_delivery_days,
+        exclude_current_winner=req.exclude_current,
+    )
+
+    new_quote_id = (
+        alt_result.selected_recommendation.quote_id
+        if alt_result.selected_recommendation
+        else None
+    )
+
+    return {
+        "status": "SUCCESS",
+        "order_reference": req.order_reference,
+        "preference_mode": req.preference_mode,
+        "selected_quote_id": new_quote_id,
+        "alternative_result": alt_result.model_dump(),
+        "approval_invalidated": alt_result.is_switched,
+        "notice": (
+            "Recommendation updated. Renewed operator approval is required before booking dispatch."
+            if alt_result.is_switched
+            else "Current recommendation retained."
+        ),
+    }
+
 
 
 @app.post("/api/scenarios/{scenario_id}/run")
@@ -1064,19 +954,35 @@ class ServiceabilityCheckRequest(BaseModel):
     origin_pin: str
     destination_pin: str
     courier_codes: Optional[list[str]] = None
+    origin_city: Optional[str] = None
+    origin_state: Optional[str] = None
+    destination_city: Optional[str] = None
+    destination_state: Optional[str] = None
 
 
 @app.post("/api/serviceability")
 def check_serviceability_endpoint(req: ServiceabilityCheckRequest) -> dict[str, Any]:
     """
     Deterministic local PIN serviceability evaluation endpoint.
-    Validates origin and destination PIN formats and evaluates carrier rules.
+    Validates origin and destination PIN formats against verified India Post database,
+    evaluates carrier serviceability rules, and detects address inconsistencies.
     """
-    return execute_check_pin_serviceability_tool({
+    res = execute_check_pin_serviceability_tool({
         "origin_pin": req.origin_pin,
         "destination_pin": req.destination_pin,
         "courier_codes": req.courier_codes,
     })
+
+    from src.domain.pincode_database import evaluate_pin_code_full
+    orig_eval = evaluate_pin_code_full(req.origin_pin, role="pickup", city=req.origin_city, state=req.origin_state)
+    dest_eval = evaluate_pin_code_full(req.destination_pin, role="delivery", city=req.destination_city, state=req.destination_state)
+
+    res["origin_eval"] = orig_eval.model_dump()
+    res["destination_eval"] = dest_eval.model_dump()
+    res["address_conflicts"] = [
+        msg for msg in [orig_eval.conflict_message, dest_eval.conflict_message] if msg
+    ]
+    return res
 
 
 @app.post("/api/rates")
@@ -1096,13 +1002,18 @@ def calculate_rates(req: RateRequest) -> dict[str, Any]:
         "origin_pin": req.sender_pin,
         "destination_pin": req.recipient_pin,
     })
-    if svc_tool_res.get("classification") == "INVALID_FORMAT":
+    if svc_tool_res.get("classification") in ("INVALID_FORMAT", "PIN_NOT_FOUND"):
         raise HTTPException(status_code=422, detail={"errors": [svc_tool_res.get("message")]})
 
     ok_p, err_p = validate_pin_code(req.sender_pin, pin_type="pickup")
     ok_d, err_d = validate_pin_code(req.recipient_pin, pin_type="delivery")
     if not ok_p or not ok_d:
         raise HTTPException(status_code=422, detail={"errors": [err_p or err_d]})
+
+    from src.domain.pincode_database import check_address_pin_consistency
+    _, origin_conflict = check_address_pin_consistency(req.sender_pin, req.sender_city, req.sender_state)
+    _, dest_conflict = check_address_pin_consistency(req.recipient_pin, req.recipient_city, req.recipient_state)
+    address_warnings = [w for w in [origin_conflict, dest_conflict] if w]
 
     # 2. Build Order
     order_ref = f"ORD-{uuid.uuid4().hex[:8].upper()}"
@@ -1139,21 +1050,10 @@ def calculate_rates(req: RateRequest) -> dict[str, Any]:
     mode = (req.provider_mode or get_active_provider_mode()).lower().strip()
     if mode in ("sandbox", "local_sandbox"):
         mode = "local_sandbox"
-    if mode == "manual_sandbox":
-        cached = _ACTIVE_QUOTES_CACHE.get(order.order_reference, [])
-        manual_quotes = [q for q in cached if getattr(q, "source_type", "") == "MANUAL_SANDBOX"]
-        if not manual_quotes:
-            db_quotes_data = db_manager.get_quotes_for_order(order.order_reference)
-            for row in db_quotes_data:
-                if row.get("source_type") == "MANUAL_SANDBOX" and row.get("quote_data_json"):
-                    try:
-                        manual_quotes.append(CourierQuote.model_validate_json(row["quote_data_json"]))
-                    except Exception:
-                        pass
-        raw_quotes = manual_quotes
     else:
-        provider = get_provider(mode)
-        raw_quotes = provider.get_rates(order)
+        mode = "demo"
+    provider = get_provider(mode)
+    raw_quotes = provider.get_rates(order)
 
     # Filter excluded couriers if any
     quotes = [q for q in raw_quotes if q.courier_code not in req.excluded_couriers]
@@ -1224,12 +1124,78 @@ def calculate_rates(req: RateRequest) -> dict[str, Any]:
         "selected_quote_id": selected_id,
         "has_eligible_couriers": has_eligible,
         "serviceability_report": svc_tool_res,
+        "address_warnings": address_warnings,
         "comparison_table": getattr(ranking, "comparison_table", []),
         "winner_reasons": getattr(ranking, "winner_reasons", []),
         "trade_off_analysis": getattr(ranking, "trade_off_analysis", ""),
         "loss_reasons": getattr(ranking, "loss_reasons", {}),
         "decision_provenance": getattr(ranking, "decision_provenance", {}),
     }
+
+
+class AlternativeRecommendationRequest(BaseModel):
+    order_reference: str
+    current_recommended_quote_id: Optional[str] = None
+    preference_mode: str = "balanced"  # lowest_cost, fastest, balanced, preferred_courier, next_best
+    preferred_courier: Optional[str] = None
+    max_budget: Optional[float] = None
+    max_delivery_days: Optional[int] = None
+    exclude_current: bool = True
+
+
+@app.post("/api/recommendations/alternative")
+def get_alternative_recommendation_endpoint(req: AlternativeRecommendationRequest) -> dict[str, Any]:
+    """
+    Generate an alternative courier recommendation under requested user preference
+    (Lowest cost, Fastest delivery, Balanced, or Preferred carrier).
+    Recalculates ranking and invalidates any downstream approval state.
+    """
+    quotes = _ACTIVE_QUOTES_CACHE.get(req.order_reference)
+    if not quotes:
+        db_quotes_data = db_manager.get_quotes_for_order(req.order_reference)
+        quotes = []
+        for row in db_quotes_data:
+            if row.get("quote_data_json"):
+                try:
+                    quotes.append(CourierQuote.model_validate_json(row["quote_data_json"]))
+                except Exception:
+                    pass
+
+    if not quotes:
+        raise HTTPException(status_code=404, detail=f"No quotes found for order '{req.order_reference}'.")
+
+    from src.domain.advisor import find_alternative_recommendations
+
+    alt_result = find_alternative_recommendations(
+        quotes=quotes,
+        current_winner_id=req.current_recommended_quote_id,
+        preference_mode=req.preference_mode,
+        preferred_courier=req.preferred_courier,
+        max_budget=req.max_budget,
+        max_delivery_days=req.max_delivery_days,
+        exclude_current_winner=req.exclude_current,
+    )
+
+    new_quote_id = (
+        alt_result.selected_recommendation.quote_id
+        if alt_result.selected_recommendation
+        else None
+    )
+
+    return {
+        "status": "SUCCESS",
+        "order_reference": req.order_reference,
+        "preference_mode": req.preference_mode,
+        "selected_quote_id": new_quote_id,
+        "alternative_result": alt_result.model_dump(),
+        "approval_invalidated": alt_result.is_switched,
+        "notice": (
+            "Recommendation updated. Renewed operator approval is required before booking dispatch."
+            if alt_result.is_switched
+            else "Current recommendation retained."
+        ),
+    }
+
 
 
 @app.post("/api/dispatch")

@@ -132,29 +132,9 @@ def test_manual_sandbox_quote_api_provenance():
     }
 
     res = client.post("/api/manual-sandbox/quote", json=payload)
-    assert res.status_code == 200, res.text
-    data = res.json()
-
-    assert data["status"] == "created"
-    quote_data = data["quote"]
-    assert quote_data["source_type"] == "MANUAL_SANDBOX"
-    assert quote_data["source_id"] == "shiprocket-sandbox-dashboard"
-    assert quote_data["evidence_url"] == "https://app.shiprocket.in/dashboard/rates"
-    assert quote_data["retrieval_method"] == "MANUAL_DASHBOARD_TRANSCRIPTION"
-
-    # Verify field provenance in returned quote
-    field_prov = quote_data["field_provenance"]
-    assert "total_cost" in field_prov
-    assert field_prov["total_cost"]["source_identifier"] == "shiprocket-sandbox-dashboard"
-    assert field_prov["total_cost"]["source_url_or_endpoint"] == "https://app.shiprocket.in/dashboard/rates"
-    assert field_prov["total_cost"]["validation_status"] == "MANUAL_UNVERIFIED"
-
-    # Verify endpoint GET /api/quotes/{quote_id}/provenance
-    prov_res = client.get(f"/api/quotes/{quote_data['quote_id']}/provenance")
-    assert prov_res.status_code == 200
-    prov_data = prov_res.json()
-    assert prov_data["exists"] is True
-    assert prov_data["provenance_count"] >= 5
+    # Manual sandbox entry has been removed per Requirement 3; endpoints return 410 Gone
+    assert res.status_code == 410
+    assert "Manual Sandbox Entry mode has been removed" in res.json()["detail"]
 
 
 def test_dashboard_export_parser_api():
@@ -192,17 +172,9 @@ def test_dashboard_export_parser_api():
     }
 
     res = client.post("/api/manual-sandbox/dashboard-export", json=export_payload)
-    assert res.status_code == 200, res.text
-    data = res.json()
-
-    assert data["status"] == "imported"
-    assert data["imported_count"] == 2
-    for q in data["quotes"]:
-        assert q["source_id"] == "delhivery-one-sandbox"
-        assert q["evidence_url"] == "https://one.delhivery.com/sandbox/calculator"
-        assert q["retrieval_method"] == "DASHBOARD_EXPORT_PARSER"
-        assert len(q["field_provenance"]) >= 5
-        assert q["field_provenance"]["total_cost"]["retrieval_method"] == "DASHBOARD_EXPORT_PARSER"
+    # Manual sandbox export has been removed per Requirement 3; endpoints return 410 Gone
+    assert res.status_code == 410
+    assert "Manual Sandbox Entry mode has been removed" in res.json()["detail"]
 
 
 def test_decision_provenance_on_ranking():

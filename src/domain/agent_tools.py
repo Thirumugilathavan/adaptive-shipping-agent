@@ -110,6 +110,8 @@ def execute_validate_inputs_tool(inputs: Dict[str, Any] | ValidateInputsToolInpu
 class PinServiceabilityCategory(str, Enum):
     SERVICEABLE = "SERVICEABLE"
     INVALID_FORMAT = "INVALID_FORMAT"
+    PIN_NOT_FOUND = "PIN_NOT_FOUND"
+    VALID_PIN_UNSERVICEABLE = "VALID_PIN_UNSERVICEABLE"
     UNSERVICEABLE_NETWORK = "UNSERVICEABLE_NETWORK"
     CARRIER_UNSERVICEABLE = "CARRIER_UNSERVICEABLE"
     MISSING_RULE_DATA = "MISSING_RULE_DATA"
@@ -131,15 +133,16 @@ def execute_check_pin_serviceability_tool(
     
     Explicitly distinguishes:
     1. INVALID_FORMAT: Malformed, non-numeric, or non-6-digit PIN.
-    2. UNSERVICEABLE_NETWORK: Unsupported zone (e.g. Army Postal Service Circle 9) or zero couriers servicing the destination.
-    3. CARRIER_UNSERVICEABLE: Destination reachable by some couriers, but restricted by specific carriers (e.g. remote PINs).
-    4. MISSING_RULE_DATA: Capability rule undefined or unverified.
+    2. PIN_NOT_FOUND: 6-digit PIN not found in verified India Post database.
+    3. VALID_PIN_UNSERVICEABLE / UNSERVICEABLE_NETWORK: Valid PIN, but unsupported zone (e.g. APS Circle 9) or zero couriers servicing destination.
+    4. CARRIER_UNSERVICEABLE: Destination reachable by some couriers, but restricted by specific carriers (e.g. remote PINs).
     5. SERVICEABLE: Fully reachable route.
     
     Disclosure: Evaluated against local capability rules and sandbox carrier profiles.
     Never claims to query a live carrier network.
     """
     from src.providers.demo_adapter import ALL_DEMO_COURIERS
+    from src.domain.pincode_database import evaluate_pin_code_full, PinValidationStatus
 
     if isinstance(inputs, dict):
         validated = CheckPinServiceabilityToolInput(**inputs)
@@ -149,34 +152,62 @@ def execute_check_pin_serviceability_tool(
     origin = str(validated.origin_pin).strip() if validated.origin_pin else ""
     dest = str(validated.destination_pin).strip() if validated.destination_pin else ""
 
-    # 1. Format check: Origin PIN
-    if not origin or not re.fullmatch(r"^[1-9]\d{5}$", origin):
+    # 1. Format & Database check: Origin PIN
+    orig_eval = evaluate_pin_code_full(origin, role="pickup")
+    if orig_eval.status == PinValidationStatus.INVALID_FORMAT:
         return {
             "tool_name": "check_pin_serviceability",
             "status": "FAILED",
             "classification": PinServiceabilityCategory.INVALID_FORMAT.value,
             "is_serviceable": False,
-            "message": f"Enter a valid 6-digit origin pickup PIN code (must start with digits 1-9, got '{origin}').",
+            "message": orig_eval.message,
             "origin_pin": origin,
             "destination_pin": dest,
             "serviceable_couriers": [],
             "unserviceable_couriers": [],
             "disclaimer": "Evaluated against deterministic local format rules. No live courier network was queried.",
         }
+    if orig_eval.status == PinValidationStatus.PIN_NOT_FOUND:
+        return {
+            "tool_name": "check_pin_serviceability",
+            "status": "FAILED",
+            "classification": PinServiceabilityCategory.PIN_NOT_FOUND.value,
+            "is_serviceable": False,
+            "message": orig_eval.message,
+            "origin_pin": origin,
+            "destination_pin": dest,
+            "serviceable_couriers": [],
+            "unserviceable_couriers": [],
+            "disclaimer": "Evaluated against verified Indian postal database.",
+        }
 
-    # 2. Format check: Destination PIN
-    if not dest or not re.fullmatch(r"^[1-9]\d{5}$", dest):
+    # 2. Format & Database check: Destination PIN
+    dest_eval = evaluate_pin_code_full(dest, role="delivery")
+    if dest_eval.status == PinValidationStatus.INVALID_FORMAT:
         return {
             "tool_name": "check_pin_serviceability",
             "status": "FAILED",
             "classification": PinServiceabilityCategory.INVALID_FORMAT.value,
             "is_serviceable": False,
-            "message": f"Enter a valid 6-digit destination delivery PIN code (must start with digits 1-9, got '{dest}').",
+            "message": dest_eval.message,
             "origin_pin": origin,
             "destination_pin": dest,
             "serviceable_couriers": [],
             "unserviceable_couriers": [],
             "disclaimer": "Evaluated against deterministic local format rules. No live courier network was queried.",
+        }
+    if dest_eval.status == PinValidationStatus.PIN_NOT_FOUND:
+        return {
+            "tool_name": "check_pin_serviceability",
+            "status": "FAILED",
+            "classification": PinServiceabilityCategory.PIN_NOT_FOUND.value,
+            "is_serviceable": False,
+            "message": dest_eval.message,
+            "origin_pin": origin,
+            "destination_pin": dest,
+            "serviceable_couriers": [],
+            "unserviceable_couriers": [],
+            "disclaimer": "Evaluated against verified Indian postal database.",
         }
 
     # 3. Network Check: Postal Circle 9 (Army Postal Service - APS)

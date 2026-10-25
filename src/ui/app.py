@@ -1471,7 +1471,7 @@ def _render_review_and_approve_section():
         with rc2:
             st.markdown(f"**Selected Courier:** **{selected_quote.courier_name}** ({selected_quote.service_type})")
             curr_str = getattr(selected_quote.cost_breakdown, "currency", "INR") if selected_quote.cost_breakdown else "INR"
-            rate_mode_badge = "*(Manual Sandbox Entry)*" if getattr(selected_quote, "source_type", "") == "MANUAL_SANDBOX" else "*(Simulated Demo Rate)*"
+            rate_mode_badge = "*(Sandbox Simulation)*" if "SANDBOX" in getattr(selected_quote, "source_type", "") else "*(Simulated Demo Rate)*"
             st.markdown(f"**Total Shipping Cost:** **{fmt_inr(cost_val, currency=curr_str)}** {rate_mode_badge}")
             if order.is_cod:
                 st.markdown(f"**Payment:** :red[**Cash on Delivery (Collect ₹ {order.cod_amount:,.2f})**]")
@@ -1658,7 +1658,7 @@ def _render_shipment_ready_section(order: OrderInput, selected_quote: CourierQuo
     st.success(" **Your shipment is ready**")
 
     is_demo = getattr(selected_quote, "is_demo_data", True)
-    awb_label = "AWB / Tracking (DEMO)" if is_demo else "AWB / Tracking (Manual Sandbox)"
+    awb_label = "AWB / Tracking (DEMO)" if is_demo else "AWB / Tracking (SANDBOX)"
 
     dead_wt = getattr(order, "parcel_weight_kg", 1.0)
     billed_wt = None
