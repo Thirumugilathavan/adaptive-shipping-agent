@@ -126,6 +126,7 @@ app = FastAPI(
     title="Adaptive Shipping Intelligence Agent",
     description="Intelligent Rate Comparer, Packaging Optimizer & Dispatch API",
     version="2.0.0",
+    redirect_slashes=False,
 )
 
 app.add_middleware(
@@ -138,9 +139,12 @@ app.add_middleware(
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _STATIC_DIR = _PROJECT_ROOT / "static"
-_STATIC_DIR.mkdir(exist_ok=True)
-(_STATIC_DIR / "css").mkdir(exist_ok=True)
-(_STATIC_DIR / "js").mkdir(exist_ok=True)
+try:
+    _STATIC_DIR.mkdir(exist_ok=True)
+    (_STATIC_DIR / "css").mkdir(exist_ok=True)
+    (_STATIC_DIR / "js").mkdir(exist_ok=True)
+except OSError:
+    pass
 
 db_manager = DatabaseManager(DEFAULT_DB_PATH)
 audit_logger = AuditLogger(db_manager)
@@ -1512,11 +1516,18 @@ def get_couriers() -> list[dict[str, Any]]:
 # -----------------------------------------------------------------------------
 
 @app.get("/")
+@app.get("/api/index")
 def serve_index():
     index_file = _STATIC_DIR / "index.html"
     if not index_file.exists():
         return HTMLResponse("<h1>Adaptive Shipping Intelligence Agent</h1><p>Frontend static files initializing...</p>")
     return FileResponse(index_file)
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return Response(status_code=204)
+
 
 # Mount static folder
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")

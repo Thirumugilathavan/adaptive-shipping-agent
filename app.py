@@ -21,6 +21,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+# Expose app for ASGI runners (including Vercel, Uvicorn, and Gunicorn)
+from src.server import app
+
 
 def open_browser(url: str, delay_seconds: float = 1.0) -> None:
     """Helper to open the default browser once server starts."""

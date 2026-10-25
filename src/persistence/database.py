@@ -6,6 +6,7 @@ Supports both file-based persistent storage and fast in-memory execution for uni
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -13,7 +14,17 @@ from pathlib import Path
 from typing import Any, Generator, Optional
 
 
-DEFAULT_DB_PATH = Path("shipping_agent.db")
+def _get_default_db_path() -> Path:
+    env_db = os.getenv("DATABASE_PATH")
+    if env_db:
+        return Path(env_db)
+    # Use writable /tmp directory when deployed on Vercel or AWS Lambda
+    if os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+        return Path("/tmp/shipping_agent.db")
+    return Path("shipping_agent.db")
+
+
+DEFAULT_DB_PATH = _get_default_db_path()
 
 
 SCHEMA_SQL = """
@@ -180,16 +191,38 @@ class DatabaseManager:
             self._mem_conn = sqlite3.connect(":memory:", timeout=10.0)
             self._mem_conn.row_factory = sqlite3.Row
             self._mem_conn.execute("PRAGMA foreign_keys = ON;")
-        self.init_db()
+        try:
+            self.init_db()
+        except sqlite3.OperationalError as exc:
+            # If filesystem is read-only or file cannot be opened, fallback to /tmp or :memory:
+            if "readonly" in str(exc).lower() or "unable to open" in str(exc).lower():
+                try:
+                    self.db_path = "/tmp/shipping_agent.db"
+                    self._mem_conn = None
+                    self.init_db()
+                except Exception:
+                    self.db_path = ":memory:"
+                    self._mem_conn = sqlite3.connect(":memory:", timeout=10.0)
+                    self._mem_conn.row_factory = sqlite3.Row
+                    self._mem_conn.execute("PRAGMA foreign_keys = ON;")
+                    self.init_db()
+            else:
+                raise
 
     def get_connection(self) -> sqlite3.Connection:
         if self._mem_conn is not None:
             return self._mem_conn
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute("PRAGMA journal_mode = WAL;")
-        return conn
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=10.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON;")
+            conn.execute("PRAGMA journal_mode = WAL;")
+            return conn
+        except sqlite3.OperationalError:
+            conn = sqlite3.connect(self.db_path, timeout=10.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON;")
+            return conn
 
     @contextmanager
     def connection(self) -> Generator[sqlite3.Connection, None, None]:
