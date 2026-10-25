@@ -135,6 +135,41 @@ class Model2PinServiceabilityResult(BaseModel):
     )
 
 
+def _resolve_model_path(target_path: Path) -> Path:
+    """
+    Ensure the target CatBoost model file is a valid binary CBM file.
+    If the file is missing, corrupted, or an unresolved Git LFS pointer,
+    transparently unpacks the bundled .cbm.gz archive to a temporary directory.
+    """
+    is_valid_binary = False
+    if target_path.is_file() and target_path.stat().st_size > 1000:
+        try:
+            with open(target_path, "rb") as f:
+                header = f.read(4)
+                if header == b"CBM1":
+                    is_valid_binary = True
+        except Exception:
+            is_valid_binary = False
+
+    if is_valid_binary:
+        return target_path
+
+    # Check for compressed variant in models directory
+    gz_path = target_path.with_name(f"{target_path.name}.gz")
+    if gz_path.is_file():
+        import gzip
+        import shutil
+        import tempfile
+
+        tmp_target = Path(tempfile.gettempdir()) / target_path.name
+        if not tmp_target.is_file() or tmp_target.stat().st_size < 1000:
+            with gzip.open(gz_path, "rb") as f_in, open(tmp_target, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        return tmp_target
+
+    return target_path
+
+
 # -----------------------------------------------------------------------------
 # Model 2 Adapter Singleton Engine
 # -----------------------------------------------------------------------------
@@ -192,7 +227,7 @@ class Model2Adapter:
         if not self.is_catboost_available():
             raise RuntimeError("CatBoost is not installed in the Python runtime environment.")
 
-        model_path = self.models_dir / "rate_model.cbm"
+        model_path = _resolve_model_path(self.models_dir / "rate_model.cbm")
         if not model_path.is_file():
             raise FileNotFoundError(f"Rate model artifact not found at: {model_path}")
 
@@ -211,7 +246,7 @@ class Model2Adapter:
         if not self.is_catboost_available():
             raise RuntimeError("CatBoost is not installed in the Python runtime environment.")
 
-        model_path = self.models_dir / "delivery_model.cbm"
+        model_path = _resolve_model_path(self.models_dir / "delivery_model.cbm")
         if not model_path.is_file():
             raise FileNotFoundError(f"Delivery model artifact not found at: {model_path}")
 
