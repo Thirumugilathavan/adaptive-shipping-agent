@@ -300,6 +300,22 @@ def fmt_inr(amount: float, currency: str = "INR") -> str:
     return f"{c} {amount:,.2f}"
 
 
+def format_inr(amount: Any, fallback: str = "Unavailable") -> str:
+    """
+    Format an amount with the Indian Rupee symbol.
+    Safely handles numbers, valid numeric strings, and returns fallback for missing/negative/non-finite values.
+    """
+    if amount is None or amount == "":
+        return fallback
+    try:
+        val = float(amount)
+        if not math.isfinite(val) or val < 0:
+            return fallback
+        return f"₹{val:,.2f}"
+    except (ValueError, TypeError):
+        return fallback
+
+
 def fmt_kg(kg: float) -> str:
     """Format weight in kg."""
     return f"{kg:.3f} kg"

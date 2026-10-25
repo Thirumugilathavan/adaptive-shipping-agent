@@ -1,3 +1,48 @@
+
+// -----------------------------------------------------------------------------
+// Shared Indian Rupee (INR) Formatting & Price Extraction Helpers
+// -----------------------------------------------------------------------------
+
+function formatINR(val, fallback = 'Unavailable') {
+  if (val === null || val === undefined || val === '') {
+    return fallback;
+  }
+  const num = typeof val === 'number' ? val : Number(val);
+  if (!Number.isFinite(num) || num < 0) {
+    return fallback;
+  }
+  return `₹${num.toFixed(2)}`;
+}
+
+function formatINRSigned(val, fallback = 'Unavailable') {
+  if (val === null || val === undefined || val === '') {
+    return fallback;
+  }
+  const num = typeof val === 'number' ? val : Number(val);
+  if (!Number.isFinite(num)) {
+    return fallback;
+  }
+  const sign = num > 0 ? '+' : (num < 0 ? '-' : '');
+  return `${sign}₹${Math.abs(num).toFixed(2)}`;
+}
+
+function extractQuotePrice(q) {
+  if (!q) return null;
+  if (typeof q.total_cost === 'number' && Number.isFinite(q.total_cost) && q.total_cost >= 0) {
+    return q.total_cost;
+  }
+  if (q.cost_breakdown && typeof q.cost_breakdown.total_cost === 'number' && Number.isFinite(q.cost_breakdown.total_cost) && q.cost_breakdown.total_cost >= 0) {
+    return q.cost_breakdown.total_cost;
+  }
+  if (q.quote && q.quote.cost_breakdown && typeof q.quote.cost_breakdown.total_cost === 'number' && Number.isFinite(q.quote.cost_breakdown.total_cost) && q.quote.cost_breakdown.total_cost >= 0) {
+    return q.quote.cost_breakdown.total_cost;
+  }
+  if (q.quote && typeof q.quote.total_cost === 'number' && Number.isFinite(q.quote.total_cost) && q.quote.total_cost >= 0) {
+    return q.quote.total_cost;
+  }
+  return null;
+}
+
 /**
  * Adaptive Shipping Intelligence Agent — Interactive Frontend Application.
  * Communicates with FastAPI REST backend for rates, 10-scenario tests,
@@ -27,7 +72,19 @@ const state = {
 
 // DOM Elements
 const elements = {
-  tabButtons: document.querySelectorAll('.tab-btn'),
+  tabButtons: document.querySelectorAll('.sidebar-nav-item[data-tab], .tab-btn'),
+  sidebarNavItems: document.querySelectorAll('.sidebar-nav-item'),
+  sidebarSubItems: document.querySelectorAll('.sidebar-sub-item'),
+  sidebarToggle: document.getElementById('sidebarToggle'),
+  appSidebar: document.getElementById('appSidebar'),
+  sidebarCloseBtn: document.getElementById('sidebarCloseBtn'),
+  sidebarOverlay: document.getElementById('sidebarOverlay'),
+  sidebarGroupRates: document.getElementById('sidebarGroupRates'),
+  chevronRates: document.getElementById('chevronRates'),
+  navItemRates: document.getElementById('navItemRates'),
+  navItemEvaluator: document.getElementById('navItemEvaluator'),
+  navItemPackaging: document.getElementById('navItemPackaging'),
+  navItemAudit: document.getElementById('navItemAudit'),
   tabPanes: document.querySelectorAll('.tab-pane'),
   providerSelect: document.getElementById('providerModeSelect'),
     providerModeBanner: document.getElementById('providerModeBanner'),
@@ -203,7 +260,7 @@ const elements = {
 // -----------------------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
-  setupTabs();
+  setupSidebarNavigation();
   setupWizard();
   setupLiveMeasurements();
   setupFormHandlers();
@@ -299,6 +356,9 @@ function goToWizardStep(stepNumber) {
     panel.classList.toggle('active', i + 1 === step);
   });
 
+  // Update active state in Left Navigation Sidebar
+  updateSidebarSubItemActive(step);
+
   // Scroll smoothly to top of wizard container
   const container = document.querySelector('.wizard-container');
   if (container) {
@@ -310,33 +370,121 @@ function goToWizardStep(stepNumber) {
 // Tab Switching
 // -----------------------------------------------------------------------------
 
-function setupTabs() {
-  elements.tabButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const targetTabId = btn.getAttribute('data-tab');
-      
-      elements.tabButtons.forEach(b => b.classList.remove('active'));
+function updateSidebarSubItemActive(stepNumber) {
+  const subItems = document.querySelectorAll('.sidebar-sub-item');
+  subItems.forEach(s => {
+    const sStep = parseInt(s.getAttribute('data-step'), 10);
+    s.classList.toggle('active', sStep === stepNumber);
+  });
+  const navItemRates = document.getElementById('navItemRates');
+  const tabRates = document.getElementById('tab-rates');
+  if (navItemRates && tabRates && tabRates.classList.contains('active')) {
+    navItemRates.classList.add('active');
+  }
+}
+
+function setupSidebarNavigation() {
+  const sidebarNavItems = document.querySelectorAll('.sidebar-nav-item');
+  const sidebarSubItems = document.querySelectorAll('.sidebar-sub-item');
+  const sidebarGroupRates = document.getElementById('sidebarGroupRates');
+  const chevronRates = document.getElementById('chevronRates');
+  const sidebarToggle = document.getElementById('sidebarToggle');
+  const appSidebar = document.getElementById('appSidebar');
+  const sidebarCloseBtn = document.getElementById('sidebarCloseBtn');
+  const sidebarOverlay = document.getElementById('sidebarOverlay');
+
+  function closeMobileSidebar() {
+    if (appSidebar) appSidebar.classList.remove('open');
+    if (sidebarOverlay) sidebarOverlay.classList.remove('open');
+  }
+
+  // Mobile toggle and overlay listeners
+  if (sidebarToggle && appSidebar && sidebarOverlay) {
+    sidebarToggle.addEventListener('click', () => {
+      appSidebar.classList.toggle('open');
+      sidebarOverlay.classList.toggle('open');
+    });
+  }
+  if (sidebarCloseBtn) sidebarCloseBtn.addEventListener('click', closeMobileSidebar);
+  if (sidebarOverlay) sidebarOverlay.addEventListener('click', closeMobileSidebar);
+
+  // Chevron click on Rate Shipping Dispatch expands/collapses subsections
+  if (chevronRates && sidebarGroupRates) {
+    chevronRates.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sidebarGroupRates.classList.toggle('expanded');
+      const isExp = sidebarGroupRates.classList.contains('expanded');
+      const navItemRates = document.getElementById('navItemRates');
+      if (navItemRates) navItemRates.setAttribute('aria-expanded', isExp ? 'true' : 'false');
+    });
+  }
+
+  // Primary navigation items (Rate Shipping Dispatch, Official Tests, Packaging, Audit)
+  sidebarNavItems.forEach(item => {
+    item.addEventListener('click', () => {
+      const tabId = item.getAttribute('data-tab');
+      if (!tabId) return;
+
+      sidebarNavItems.forEach(n => n.classList.remove('active'));
+      item.classList.add('active');
+
       elements.tabPanes.forEach(p => p.classList.remove('active'));
+      const targetPane = document.getElementById(tabId);
+      if (targetPane) targetPane.classList.add('active');
 
-      btn.classList.add('active');
-      const targetPane = document.getElementById(targetTabId);
-      if (targetPane) {
-        targetPane.classList.add('active');
+      if (tabId === 'tab-rates') {
+        if (sidebarGroupRates) sidebarGroupRates.classList.add('expanded');
+        updateSidebarSubItemActive(state.currentWizardStep || 1);
+      } else {
+        sidebarSubItems.forEach(s => s.classList.remove('active'));
+        if (tabId === 'tab-evaluator') {
+          loadOfficialScenarios();
+          loadScenarios();
+          loadTestRuns();
+        } else if (tabId === 'tab-packaging') {
+          loadCustomPackages();
+        } else if (tabId === 'tab-audit') {
+          loadAuditLogs();
+        }
       }
 
-      if (targetTabId === 'tab-evaluator') {
-        loadOfficialScenarios();
-        loadScenarios();
-        loadTestRuns();
-      } else if (targetTabId === 'tab-packaging') {
-        loadCustomPackages();
-      } else if (targetTabId === 'tab-audit') {
-        loadAuditLogs();
-      }
+      closeMobileSidebar();
     });
   });
 
-// providerSelect managed in setupProviderControls
+  // 4 Nested Subsections under Rate Shipping Dispatch
+  sidebarSubItems.forEach(subItem => {
+    subItem.addEventListener('click', () => {
+      const step = parseInt(subItem.getAttribute('data-step'), 10);
+      if (isNaN(step)) return;
+
+      // Ensure tab-rates pane is active
+      const navItemRates = document.getElementById('navItemRates');
+      if (navItemRates) {
+        sidebarNavItems.forEach(n => n.classList.remove('active'));
+        navItemRates.classList.add('active');
+      }
+      elements.tabPanes.forEach(p => p.classList.remove('active'));
+      const tabRates = document.getElementById('tab-rates');
+      if (tabRates) tabRates.classList.add('active');
+      if (sidebarGroupRates) sidebarGroupRates.classList.add('expanded');
+
+      // Navigate to requested step
+      if (step <= state.maxCompletedStep) {
+        goToWizardStep(step);
+      } else if (step === 2 && !state.activeQuotes.length) {
+        if (elements.shippingForm.requestSubmit) {
+          elements.shippingForm.requestSubmit();
+        } else if (elements.btnFindCouriers) {
+          elements.btnFindCouriers.click();
+        }
+      } else if (step === 3 && state.selectedQuoteId) {
+        goToWizardStep(3);
+      }
+
+      closeMobileSidebar();
+    });
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -517,8 +665,8 @@ function renderRateResults(data) {
         elements.advServiceTypeBadge.textContent = rec.service_type || 'Standard Service';
       }
       if (elements.advWinningCost) {
-        const costVal = rec.cost_breakdown ? rec.cost_breakdown.total_cost.toFixed(2) : '--.--';
-        elements.advWinningCost.textContent = `INR ${costVal}`;
+        const costVal = extractQuotePrice(rec);
+        elements.advWinningCost.textContent = formatINR(costVal);
       }
       if (elements.advWinningSla) {
         elements.advWinningSla.textContent = `${rec.estimated_delivery_days || '--'} Days SLA`;
@@ -619,7 +767,7 @@ function renderRateResults(data) {
       card.className = `courier-card ${isSelected ? 'selected' : ''} ${!isSvc ? 'unserviceable' : ''}`;
       card.setAttribute('data-id', quote.quote_id);
 
-      const costStr = quote.cost_breakdown ? `INR ${quote.cost_breakdown.total_cost.toFixed(2)}` : 'N/A';
+      const costStr = formatINR(extractQuotePrice(quote));
       const slabKg = quote.weight_result ? `${quote.weight_result.billing_slab_kg.toFixed(2)} kg` : '0.50 kg';
 
       card.innerHTML = `
@@ -1593,13 +1741,14 @@ async function fetchAndRenderMlPrediction() {
   try {
     elements.mlPredictedPrice.textContent = 'Calculating...';
     if (elements.mlSelectedCourierPrice) {
-      if (selectedQuote && selectedQuote.cost_breakdown) {
-        elements.mlSelectedCourierPrice.textContent = `₹ ${selectedQuote.cost_breakdown.total_cost.toFixed(2)}`;
+      const selectedPriceVal = extractQuotePrice(selectedQuote);
+      if (selectedQuote && selectedPriceVal !== null) {
+        elements.mlSelectedCourierPrice.textContent = formatINR(selectedPriceVal);
         if (elements.mlSelectedCourierName) {
           elements.mlSelectedCourierName.textContent = selectedQuote.courier_name;
         }
       } else {
-        elements.mlSelectedCourierPrice.textContent = '₹ ---.--';
+        elements.mlSelectedCourierPrice.textContent = 'Unavailable';
         if (elements.mlSelectedCourierName) {
           elements.mlSelectedCourierName.textContent = 'No quote selected';
         }
@@ -1631,8 +1780,8 @@ async function fetchAndRenderMlPrediction() {
     const currSym = data.currency === 'USD' ? '$' : '₹';
     const estPrice = data.predicted_price;
 
-    if (estPrice !== null && estPrice !== undefined) {
-      elements.mlPredictedPrice.textContent = `${currSym} ${estPrice.toFixed(2)}`;
+    if (estPrice !== null && estPrice !== undefined && Number.isFinite(estPrice) && estPrice >= 0) {
+      elements.mlPredictedPrice.textContent = formatINR(estPrice);
     } else {
       elements.mlPredictedPrice.textContent = 'Unavailable';
     }
@@ -1821,13 +1970,15 @@ window.closeDashboardExportModal = function() {
 // -----------------------------------------------------------------------------
 
 let currentAltPreference = 'lowest_cost';
+let isApplyingPreference = false;
 
 function setupAlternativeRecommendations() {
   if (elements.btnToggleAltRecommendations && elements.altRecommendationsPanel) {
     elements.btnToggleAltRecommendations.addEventListener('click', () => {
       elements.altRecommendationsPanel.classList.toggle('hidden');
       if (!elements.altRecommendationsPanel.classList.contains('hidden')) {
-        fetchAndRenderAlternativeRecommendations(currentAltPreference, elements.selPreferredCourier ? elements.selPreferredCourier.value : null);
+        const preferred = elements.selPreferredCourier ? elements.selPreferredCourier.value : null;
+        fetchAndRenderAlternativeRecommendations(currentAltPreference, preferred, false);
       }
     });
   }
@@ -1838,26 +1989,90 @@ function setupAlternativeRecommendations() {
     });
   }
 
+  // Preference Chips (5 choices: lowest_cost, fastest, balanced, preferred_courier, next_best)
   document.querySelectorAll('.btn-pref-chip').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.btn-pref-chip').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       currentAltPreference = btn.getAttribute('data-pref');
-      fetchAndRenderAlternativeRecommendations(currentAltPreference, elements.selPreferredCourier ? elements.selPreferredCourier.value : null);
+
+      // If preferred_courier clicked and no carrier chosen, prompt user
+      if (currentAltPreference === 'preferred_courier' && elements.selPreferredCourier && !elements.selPreferredCourier.value) {
+        elements.selPreferredCourier.focus();
+      }
+
+      const preferred = elements.selPreferredCourier ? elements.selPreferredCourier.value : null;
+      fetchAndRenderAlternativeRecommendations(currentAltPreference, preferred, false);
     });
   });
 
+  // When courier select changes, automatically set preference to preferred_courier
+  if (elements.selPreferredCourier) {
+    elements.selPreferredCourier.addEventListener('change', () => {
+      if (elements.selPreferredCourier.value) {
+        currentAltPreference = 'preferred_courier';
+        document.querySelectorAll('.btn-pref-chip').forEach(b => {
+          b.classList.toggle('active', b.getAttribute('data-pref') === 'preferred_courier');
+        });
+        fetchAndRenderAlternativeRecommendations('preferred_courier', elements.selPreferredCourier.value, false);
+      }
+    });
+  }
+
+  // Apply Preference Button click handler
   if (elements.btnApplyAltPreference) {
-    elements.btnApplyAltPreference.addEventListener('click', () => {
-      const preferred = elements.selPreferredCourier ? elements.selPreferredCourier.value : null;
-      fetchAndRenderAlternativeRecommendations(currentAltPreference, preferred);
+    elements.btnApplyAltPreference.addEventListener('click', async () => {
+      await applyPreferenceWorkflow();
     });
   }
 }
 
-async function fetchAndRenderAlternativeRecommendations(prefMode, preferredCourier) {
+async function applyPreferenceWorkflow() {
+  if (isApplyingPreference) return;
+  if (!state.activeOrder || !state.activeOrder.order_reference) {
+    if (elements.altResultNotice) {
+      elements.altResultNotice.textContent = 'Please submit shipment details to calculate courier rates first.';
+      if (elements.altRecResultContainer) elements.altRecResultContainer.classList.remove('hidden');
+    }
+    return;
+  }
+
+  let prefMode = currentAltPreference || 'balanced';
+  const preferredVal = elements.selPreferredCourier ? elements.selPreferredCourier.value : '';
+
+  // If user selected a carrier in dropdown, ensure mode is preferred_courier
+  if (preferredVal && prefMode !== 'preferred_courier') {
+    prefMode = 'preferred_courier';
+    currentAltPreference = 'preferred_courier';
+    document.querySelectorAll('.btn-pref-chip').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-pref') === 'preferred_courier');
+    });
+  }
+
+  if (prefMode === 'preferred_courier' && !preferredVal) {
+    if (elements.altResultNotice) {
+      elements.altResultNotice.textContent = 'Please choose a carrier from the dropdown to apply Preferred Courier preference.';
+      if (elements.altRecResultContainer) elements.altRecResultContainer.classList.remove('hidden');
+    }
+    if (elements.selPreferredCourier) elements.selPreferredCourier.focus();
+    return;
+  }
+
+  // Apply with loading state and duplicate prevention
+  await fetchAndRenderAlternativeRecommendations(prefMode, preferredVal, true);
+}
+
+async function fetchAndRenderAlternativeRecommendations(prefMode, preferredCourier, applyAsWinner = false) {
   if (!state.activeOrder || !state.activeOrder.order_reference) {
     return;
+  }
+
+  if (applyAsWinner) {
+    isApplyingPreference = true;
+    if (elements.btnApplyAltPreference) {
+      elements.btnApplyAltPreference.disabled = true;
+      elements.btnApplyAltPreference.textContent = 'Applying Preference...';
+    }
   }
 
   try {
@@ -1876,7 +2091,12 @@ async function fetchAndRenderAlternativeRecommendations(prefMode, preferredCouri
     });
 
     if (!res.ok) {
-      console.warn('Failed to fetch alternative recommendations');
+      const errData = await res.json().catch(() => ({}));
+      const errMsg = errData.detail || 'Failed to process alternative recommendations.';
+      if (elements.altResultNotice) {
+        elements.altResultNotice.textContent = `Error: ${errMsg}`;
+      }
+      if (elements.altRecResultContainer) elements.altRecResultContainer.classList.remove('hidden');
       return;
     }
 
@@ -1892,50 +2112,129 @@ async function fetchAndRenderAlternativeRecommendations(prefMode, preferredCouri
       elements.altResultNotice.textContent = altRes.decision_explanation;
     }
 
-    if (elements.altCandidatesList) {
-      elements.altCandidatesList.innerHTML = '';
-      if (!altRes.eligible_alternatives || altRes.eligible_alternatives.length === 0) {
-        elements.altCandidatesList.innerHTML = '<div style="font-size:12px; color:var(--text-muted); padding:8px;">No other eligible alternatives available for this route.</div>';
-      } else {
-        altRes.eligible_alternatives.forEach(alt => {
-          const isCurrentSelected = alt.quote_id === state.selectedQuoteId;
-          const card = document.createElement('div');
-          card.className = `alt-candidate-card ${isCurrentSelected ? 'selected' : ''}`;
-          card.innerHTML = `
-            <div class="alt-candidate-info">
-              <span class="alt-candidate-name">${alt.courier_name} (${alt.service_type})</span>
-              <div style="font-size: 13px; font-weight: 700; color: var(--primary);">
-                INR ${alt.total_cost.toFixed(2)} &bull; ${alt.estimated_delivery_days || '--'} Days SLA
-              </div>
-              <span class="alt-candidate-tradeoff">${alt.tradeoff_explanation}</span>
-            </div>
-            <button type="button" class="btn-sm ${isCurrentSelected ? 'btn-ghost' : 'btn-primary'}" onclick="applyAlternativeQuote('${alt.quote_id}')">
-              ${isCurrentSelected ? 'Currently Selected' : 'Switch to this Courier'}
-            </button>
-          `;
-          elements.altCandidatesList.appendChild(card);
-        });
+    // Render candidate list with formatted INR prices and trade-offs
+    renderAlternativeCandidates(altRes);
+
+    // If "Apply Preference" button was clicked, synchronize recommendation to active UI
+    if (applyAsWinner && altRes.selected_recommendation) {
+      const selectedAlt = altRes.selected_recommendation;
+      const newQuoteId = selectedAlt.quote_id;
+
+      // 1. Update active selected quote
+      state.selectedQuoteId = newQuoteId;
+      selectCourier(newQuoteId);
+
+      // 2. Synchronize Recommended Courier Card
+      if (elements.advCourierName) elements.advCourierName.textContent = selectedAlt.courier_name;
+      if (elements.advServiceTypeBadge) elements.advServiceTypeBadge.textContent = selectedAlt.service_type || 'Standard Service';
+      if (elements.advWinningCost) elements.advWinningCost.textContent = formatINR(selectedAlt.total_cost);
+      if (elements.advWinningSla) elements.advWinningSla.textContent = `${selectedAlt.estimated_delivery_days || '--'} Days SLA`;
+      if (elements.recTurnaroundTime) elements.recTurnaroundTime.textContent = `${selectedAlt.estimated_delivery_days || '--'} Business Days`;
+
+      // 3. Synchronize Explanation
+      if (elements.advExplanation) {
+        elements.advExplanation.textContent = altRes.decision_explanation;
       }
+
+      // 4. Invalidate operator approval
+      if (elements.chkOperatorConfirm) elements.chkOperatorConfirm.checked = false;
+      if (elements.btnApproveDispatch) elements.btnApproveDispatch.disabled = true;
+      state.isApprovalGranted = false;
+
+      // 5. Update notice with renewed operator confirmation requirement
+      if (elements.altResultNotice) {
+        elements.altResultNotice.textContent = `Applied: ${altRes.decision_explanation} Note: Renewed operator confirmation is required before booking.`;
+      }
+
+      // 6. Synchronize ML Benchmark comparison for the new selected quote
+      await fetchAndRenderMlPrediction();
+
+      // 7. Refresh candidate list to reflect new selected quote
+      renderAlternativeCandidates(altRes);
     }
+
   } catch (err) {
     console.error('Error fetching alternative recommendations:', err);
+    if (elements.altResultNotice) {
+      elements.altResultNotice.textContent = 'Network error while fetching alternative recommendations.';
+    }
+  } finally {
+    if (applyAsWinner) {
+      isApplyingPreference = false;
+      if (elements.btnApplyAltPreference) {
+        elements.btnApplyAltPreference.disabled = false;
+        elements.btnApplyAltPreference.textContent = 'Apply Preference';
+      }
+    }
   }
 }
 
-window.applyAlternativeQuote = function(quoteId) {
+function renderAlternativeCandidates(altRes) {
+  if (!elements.altCandidatesList) return;
+  elements.altCandidatesList.innerHTML = '';
+
+  if (!altRes.eligible_alternatives || altRes.eligible_alternatives.length === 0) {
+    elements.altCandidatesList.innerHTML = '<div style="font-size:12px; color:var(--text-muted); padding:8px;">No other eligible alternatives available for this route.</div>';
+    return;
+  }
+
+  altRes.eligible_alternatives.forEach(alt => {
+    const isCurrentSelected = alt.quote_id === state.selectedQuoteId;
+    const card = document.createElement('div');
+    card.className = `alt-candidate-card ${isCurrentSelected ? 'selected' : ''}`;
+    card.innerHTML = `
+      <div class="alt-candidate-info">
+        <span class="alt-candidate-name">${alt.courier_name} (${alt.service_type})</span>
+        <div style="font-size: 13px; font-weight: 700; color: var(--primary);">
+          ${formatINR(alt.total_cost)} &bull; ${alt.estimated_delivery_days || '--'} Days SLA
+        </div>
+        <span class="alt-candidate-tradeoff">${alt.tradeoff_explanation}</span>
+      </div>
+      <button type="button" class="btn-sm ${isCurrentSelected ? 'btn-ghost' : 'btn-primary'}" onclick="applyAlternativeQuote('${alt.quote_id}')">
+        ${isCurrentSelected ? 'Currently Selected' : 'Switch to this Courier'}
+      </button>
+    `;
+    elements.altCandidatesList.appendChild(card);
+  });
+}
+
+window.applyAlternativeQuote = async function(quoteId) {
   selectCourier(quoteId);
 
-  // Requirement 1: Invalidate approval fingerprint and downstream state
-  if (elements.chkOperatorConfirm) {
-    elements.chkOperatorConfirm.checked = false;
-  }
-  if (elements.btnApproveDispatch) {
-    elements.btnApproveDispatch.disabled = true;
-  }
+  // Invalidate operator approval
+  if (elements.chkOperatorConfirm) elements.chkOperatorConfirm.checked = false;
+  if (elements.btnApproveDispatch) elements.btnApproveDispatch.disabled = true;
   state.isApprovalGranted = false;
 
-  // Visual confirmation
-  alert('Courier recommendation updated. Operator dispatch approval has been reset and requires renewed confirmation.');
+  // Find quote in active quotes to update Recommended Courier card
+  const quote = state.activeQuotes.find(q => q.quote_id === quoteId);
+  if (quote) {
+    if (elements.advCourierName) elements.advCourierName.textContent = quote.courier_name;
+    if (elements.advServiceTypeBadge) elements.advServiceTypeBadge.textContent = quote.service_type || 'Standard Service';
+    if (elements.advWinningCost) elements.advWinningCost.textContent = formatINR(extractQuotePrice(quote));
+    if (elements.advWinningSla) elements.advWinningSla.textContent = `${quote.estimated_delivery_days || '--'} Days SLA`;
+    if (elements.recTurnaroundTime) elements.recTurnaroundTime.textContent = `${quote.estimated_delivery_days || '--'} Business Days`;
+  }
+
+  if (elements.altResultNotice) {
+    elements.altResultNotice.textContent = `Switched to ${quote ? quote.courier_name : quoteId}. Renewed operator confirmation is required.`;
+  }
+
+  // Update candidates cards
+  document.querySelectorAll('.alt-candidate-card').forEach(card => {
+    const btn = card.querySelector('button');
+    if (btn && btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(quoteId)) {
+      card.classList.add('selected');
+      btn.className = 'btn-sm btn-ghost';
+      btn.textContent = 'Currently Selected';
+    } else if (btn) {
+      card.classList.remove('selected');
+      btn.className = 'btn-sm btn-primary';
+      btn.textContent = 'Switch to this Courier';
+    }
+  });
+
+  await fetchAndRenderMlPrediction();
 };
 
 // -----------------------------------------------------------------------------

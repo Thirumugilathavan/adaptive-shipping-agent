@@ -477,6 +477,14 @@ def get_alternative_recommendation_endpoint(req: AlternativeRecommendationReques
     (Lowest cost, Fastest delivery, Balanced, or Preferred carrier).
     Recalculates ranking and invalidates any downstream approval state.
     """
+    valid_modes = {"lowest_cost", "fastest", "balanced", "preferred_courier", "next_best", "reject"}
+    cleaned_mode = (req.preference_mode or "balanced").strip().lower()
+    if cleaned_mode not in valid_modes:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid preference_mode '{req.preference_mode}'. Allowed modes: {sorted(list(valid_modes))}"
+        )
+
     quotes = _ACTIVE_QUOTES_CACHE.get(req.order_reference)
     if not quotes:
         db_quotes_data = db_manager.get_quotes_for_order(req.order_reference)
@@ -496,7 +504,7 @@ def get_alternative_recommendation_endpoint(req: AlternativeRecommendationReques
     alt_result = find_alternative_recommendations(
         quotes=quotes,
         current_winner_id=req.current_recommended_quote_id,
-        preference_mode=req.preference_mode,
+        preference_mode=cleaned_mode,
         preferred_courier=req.preferred_courier,
         max_budget=req.max_budget,
         max_delivery_days=req.max_delivery_days,

@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field
 
-from src.domain.models import CourierQuote
+from src.domain.models import CourierQuote, CostBreakdown
 
 
 class DeliveryDeadlineOption(str, Enum):
@@ -85,6 +85,7 @@ class CourierPreferenceCompliance(BaseModel):
     currency: str = "INR"
     estimated_delivery_days: Optional[int] = None
     is_serviceable: bool = True
+    cost_breakdown: Optional[CostBreakdown] = None
 
     # Budget evaluation
     meets_budget: bool = True
@@ -254,6 +255,7 @@ def evaluate_quote_compliance(
         currency=currency,
         estimated_delivery_days=sla_days,
         is_serviceable=quote.is_serviceable,
+        cost_breakdown=quote.cost_breakdown,
         meets_budget=meets_budget,
         budget_overrun=budget_overrun,
         budget_savings=budget_savings,
@@ -561,6 +563,8 @@ class AlternativeCandidate(BaseModel):
     courier_name: str
     service_type: str
     total_cost: float
+    currency: str = "INR"
+    cost_breakdown: Optional[CostBreakdown] = None
     estimated_delivery_days: Optional[int] = None
     is_serviceable: bool = True
     selection_rationale: str = ""
@@ -647,6 +651,8 @@ def find_alternative_recommendations(
         courier_name=baseline_q.courier_name,
         service_type=baseline_q.service_type,
         total_cost=base_cost,
+        currency="INR",
+        cost_breakdown=baseline_q.cost_breakdown,
         estimated_delivery_days=baseline_q.estimated_delivery_days,
         is_serviceable=True,
         selection_rationale="Current baseline winner.",
@@ -674,7 +680,7 @@ def find_alternative_recommendations(
         if pref_match:
             selected_quote = pref_match
             pref_applied_label = f"Preferred Carrier: {pref_match.courier_name}"
-            decision_reason = f"Selected your preferred carrier '{pref_match.courier_name}'. Fully serviceable for this route at INR {pref_match.cost_breakdown.total_cost:.2f}."
+            decision_reason = f"Selected your preferred carrier '{pref_match.courier_name}'. Fully serviceable for this route at ₹{pref_match.cost_breakdown.total_cost:.2f}."
         else:
             # Check if user requested an unserviceable courier
             unsvc_match = next(
@@ -708,9 +714,9 @@ def find_alternative_recommendations(
             sla = selected_quote.estimated_delivery_days or 1
             cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
             if selected_quote.quote_id == baseline_q.quote_id:
-                mode_reason = f"Current recommendation is already the fastest available eligible option ({sla} Days SLA at INR {cost:.2f})."
+                mode_reason = f"Current recommendation is already the fastest available eligible option ({sla} Days SLA at ₹{cost:.2f})."
             else:
-                mode_reason = f"Prioritizes delivery turnaround: Delivers in {sla} Days (INR {cost:.2f})."
+                mode_reason = f"Prioritizes delivery turnaround: Delivers in {sla} Days (₹{cost:.2f})."
 
         elif mode == "lowest_cost":
             pref_applied_label = "Lowest Shipping Cost"
@@ -726,9 +732,9 @@ def find_alternative_recommendations(
             cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
             sla = selected_quote.estimated_delivery_days or 3
             if selected_quote.quote_id == baseline_q.quote_id:
-                mode_reason = f"Current recommendation is already the lowest cost option available (INR {cost:.2f}, {sla} Days SLA)."
+                mode_reason = f"Current recommendation is already the lowest cost option available (₹{cost:.2f}, {sla} Days SLA)."
             else:
-                mode_reason = f"Prioritizes shipping savings: Lowest landed freight cost at INR {cost:.2f} (SLA: {sla} Days)."
+                mode_reason = f"Prioritizes shipping savings: Lowest landed freight cost at ₹{cost:.2f} (SLA: {sla} Days)."
 
         elif mode in ("next_best", "reject"):
             pref_applied_label = "Alternative Choice"
@@ -738,7 +744,7 @@ def find_alternative_recommendations(
                 selected_quote = remaining[0]
                 cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
                 sla = selected_quote.estimated_delivery_days or 3
-                mode_reason = f"Alternative recommendation: {selected_quote.courier_name} at INR {cost:.2f} ({sla} Days SLA)."
+                mode_reason = f"Alternative recommendation: {selected_quote.courier_name} at ₹{cost:.2f} ({sla} Days SLA)."
             else:
                 selected_quote = baseline_q
                 mode_reason = f"No other eligible couriers available for this route. {baseline_q.courier_name} remains the only viable carrier."
@@ -766,7 +772,7 @@ def find_alternative_recommendations(
 
             cost = selected_quote.cost_breakdown.total_cost if selected_quote.cost_breakdown else 0.0
             sla = selected_quote.estimated_delivery_days or 3
-            mode_reason = f"Balanced trade-off between transit speed ({sla} Days) and landed freight cost (INR {cost:.2f})."
+            mode_reason = f"Balanced trade-off between transit speed ({sla} Days) and landed freight cost (₹{cost:.2f})."
 
         if pref_notice:
             decision_reason = f"{pref_notice} {mode_reason}"
@@ -789,17 +795,17 @@ def find_alternative_recommendations(
 
         # Build trade-off explanation
         if diff_c < 0 and diff_d is not None and diff_d > 0:
-            trade_text = f"Saves INR {abs(diff_c):.2f} but delivers {diff_d} day(s) later."
+            trade_text = f"Saves ₹{abs(diff_c):.2f} but delivers {diff_d} day(s) later."
         elif diff_c < 0 and diff_d is not None and diff_d <= 0:
-            trade_text = f"Saves INR {abs(diff_c):.2f} with faster or equal delivery time."
+            trade_text = f"Saves ₹{abs(diff_c):.2f} with faster or equal delivery time."
         elif diff_c > 0 and diff_d is not None and diff_d < 0:
-            trade_text = f"Delivers {abs(diff_d)} day(s) faster for an additional INR {diff_c:.2f}."
+            trade_text = f"Delivers {abs(diff_d)} day(s) faster for an additional ₹{diff_c:.2f}."
         elif diff_c > 0 and diff_d is not None and diff_d >= 0:
-            trade_text = f"Costs INR {diff_c:.2f} more and takes equal or longer transit."
+            trade_text = f"Costs ₹{diff_c:.2f} more and takes equal or longer transit."
         elif diff_c == 0:
             trade_text = "Equivalent freight cost."
         else:
-            trade_text = f"Cost variance: INR {diff_c:+.2f}."
+            trade_text = f"Cost variance: ₹{diff_c:+.2f}."
 
         is_sel = (q.quote_id == selected_quote.quote_id)
         cand = AlternativeCandidate(
@@ -808,6 +814,8 @@ def find_alternative_recommendations(
             courier_name=q.courier_name,
             service_type=q.service_type,
             total_cost=cost_q,
+            currency="INR",
+            cost_breakdown=q.cost_breakdown,
             estimated_delivery_days=days_q,
             is_serviceable=True,
             selection_rationale="Recommended alternative" if is_sel else "Eligible alternative",
