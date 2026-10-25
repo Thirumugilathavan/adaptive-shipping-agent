@@ -91,3 +91,45 @@ def test_serverless_sqlite_fallback(monkeypatch, tmp_path):
     test_db_file = tmp_path / "fallback_test.db"
     mgr = DatabaseManager(test_db_file)
     assert mgr.get_connection() is not None
+
+
+def test_vercel_bundle_optimization_configuration():
+    """Verify vercel.json and .vercelignore configure bundle size exclusions and large function support."""
+    v_path = Path("vercel.json")
+    assert v_path.exists()
+    content = json.loads(v_path.read_text(encoding="utf-8"))
+
+    # Large functions enabled
+    assert content.get("build", {}).get("env", {}).get("VERCEL_SUPPORT_LARGE_FUNCTIONS") == "1"
+
+    # Function exclusions configured
+    func_cfg = content.get("functions", {}).get("api/index.py", {})
+    assert "excludeFiles" in func_cfg
+    exclude_pattern = func_cfg["excludeFiles"]
+    assert "tests/**" in exclude_pattern
+    assert "scripts/**" in exclude_pattern
+    assert "models/domestic_shipping_training_sample.csv" in exclude_pattern
+
+    # .vercelignore presence and contents
+    v_ignore = Path(".vercelignore")
+    assert v_ignore.exists()
+    ignore_text = v_ignore.read_text(encoding="utf-8")
+    assert "tests" in ignore_text
+    assert "scripts" in ignore_text
+    assert "models/domestic_shipping_training_sample.csv" in ignore_text
+
+
+def test_production_dependencies_lean():
+    """Verify production requirements.txt excludes pyarrow and pytest to avoid function bloat."""
+    req_path = Path("requirements.txt")
+    assert req_path.exists()
+    req_text = req_path.read_text(encoding="utf-8").lower()
+
+    assert "pyarrow" not in req_text, "Unused pyarrow must not be present in production requirements"
+    assert "pytest" not in req_text, "Development pytest must not be present in production requirements"
+
+    dev_req_path = Path("requirements-dev.txt")
+    assert dev_req_path.exists()
+    dev_text = dev_req_path.read_text(encoding="utf-8").lower()
+    assert "pytest" in dev_text
+

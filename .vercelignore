@@ -1,0 +1,27 @@
+# Version control and development caches
+.git
+.github
+.pytest_cache
+__pycache__
+*.pyc
+
+# Local development test suites and tools
+tests
+scripts
+docs
+requirements-dev.txt
+
+# Non-runtime training samples and CLI scenario runners
+models/domestic_shipping_training_sample.csv
+run_demo.py
+run_demo_scenarios.py
+run_official_scenarios.py
+
+# Local SQLite databases and temp files
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.tmp
+.env.local
+.env.*.local

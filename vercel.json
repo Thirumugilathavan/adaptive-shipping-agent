@@ -1,5 +1,15 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "build": {
+    "env": {
+      "VERCEL_SUPPORT_LARGE_FUNCTIONS": "1"
+    }
+  },
+  "functions": {
+    "api/index.py": {
+      "excludeFiles": "{tests/**,docs/**,scripts/**,.pytest_cache/**,models/domestic_shipping_training_sample.csv,run_*.py}"
+    }
+  },
   "rewrites": [
     {
       "source": "/(.*)",
