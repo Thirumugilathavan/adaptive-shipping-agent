@@ -1,6 +1,6 @@
 """
 UI Helper Functions and Session State Management.
-Pure functions (no Streamlit state) for input validation, formatting,
+Pure functions for input validation, formatting,
 and converting domain objects into display-ready structures.
 These helpers contain NO business logic duplicates – they only call existing domain modules.
 """
@@ -336,7 +336,7 @@ def fmt_age(seconds: float) -> str:
 
 def freshness_badge(quote: CourierQuote, max_age_seconds: int = 900) -> tuple[str, str]:
     """
-    Return (label, colour) for Streamlit badge.
+    Return (label, colour) for UI status badge.
     colour is one of: green, orange, red.
     """
     check = check_quote_freshness(quote, max_age_seconds=max_age_seconds)
@@ -387,7 +387,7 @@ def format_weight_breakdown(wr: WeightResult) -> dict[str, str]:
 
 
 def shipment_status_colour(status: ShipmentStatus) -> str:
-    """Map shipment status to a Streamlit colour string."""
+    """Map shipment status to a UI colour string."""
     mapping = {
         ShipmentStatus.DRAFT: "gray",
         ShipmentStatus.QUOTED: "blue",

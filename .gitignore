@@ -18,7 +18,16 @@ htmlcov/
 *.db
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite3
 .env
+.env.*
 
-# Streamlit
-.streamlit/
+# Vercel & Deployment
+.vercel/
+
+# Logs & Temporary files
+*.log
+scratch/
+.DS_Store
+Thumbs.db

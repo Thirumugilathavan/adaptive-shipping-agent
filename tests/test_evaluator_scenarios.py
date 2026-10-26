@@ -12,14 +12,10 @@ from __future__ import annotations
 
 from pathlib import Path
 import pytest
-from streamlit.testing.v1 import AppTest
-
 from src.domain.evaluator import EvaluatorSuite, SCENARIO_METADATA, ScenarioStatus
 from src.domain.official_scenarios import OfficialScenariosRunner
 from src.domain.models import ShipmentStatus
 from src.persistence.database import DatabaseManager
-
-APP_FILE = str(Path(__file__).resolve().parent.parent / "src" / "ui" / "app.py")
 
 
 @pytest.fixture
@@ -185,59 +181,3 @@ def test_official_runner_database_clear(memory_db):
     memory_db.clear_official_test_runs()
     assert len(memory_db.get_official_test_runs()) == 0
 
-
-# ==============================================================================
-# Streamlit UI AppTest Integration Tests
-# ==============================================================================
-
-def test_ui_official_test_cases_dashboard():
-    """Verify Official Test Cases Dashboard buttons and results in Streamlit UI."""
-    at = AppTest.from_file(APP_FILE, default_timeout=30)
-    at.run()
-
-    # Click Run All Official Tests button
-    run_all_btn = [b for b in at.button if "Run All Official Tests" in b.label][0]
-    run_all_btn.click().run()
-
-    assert len(at.exception) == 0
-    ot_results = at.session_state.get("official_test_results", {})
-    assert len(ot_results) == 4
-    for tc in ["TC1", "TC2", "TC3", "TC4"]:
-        assert ot_results[tc]["status"] == "PASSED"
-
-    # Click Reset button
-    reset_btn = [b for b in at.button if "Reset Official Test Results" in b.label][0]
-    reset_btn.click().run()
-    assert len(at.session_state.get("official_test_results", {})) == 0
-
-
-def test_ui_sidebar_evaluator_scenario_load_and_run():
-    """Verify selecting, loading, and running an evaluator scenario from sidebar."""
-    at = AppTest.from_file(APP_FILE, default_timeout=30)
-    at.run()
-
-    # Select Demo A
-    select = at.sidebar.selectbox(key="demo_scenario_choice")
-    select.set_value("Demo A: Normal Parcel (Standard comparison & booking)").run()
-
-    # Click Load
-    load_btn = [b for b in at.sidebar.button if "Load" in b.label][0]
-    load_btn.click().run()
-
-    assert at.session_state.get("order") is not None
-    assert at.session_state.get("_parcel_length_cm") == 25.0
-    assert at.session_state.get("quotes") is not None
-    assert len(at.session_state["quotes"]) > 0
-
-    # Click Run
-    run_btn = [b for b in at.sidebar.button if "Run" in b.label][0]
-    run_btn.click().run()
-
-    sc_results = at.session_state.get("scenario_test_results", {})
-    assert "DEMO_A" in sc_results
-    assert sc_results["DEMO_A"].status.value == "PASSED"
-
-    # Click Reset
-    reset_btn = [b for b in at.sidebar.button if "Reset" in b.label][0]
-    reset_btn.click().run()
-    assert "DEMO_A" not in at.session_state.get("scenario_test_results", {})
